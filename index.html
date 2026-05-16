@@ -850,7 +850,7 @@
 
       const body = cancelled ? "緊急地震速報は取り消されました。" : [
         `震源: ${raw.Hypocenter || "不明"}`,
-        `規模: ${raw.Magunitude || raw.Magnitude ? "M" + (raw.Magunitude ?? raw.Magnitude) : "不明"}`,
+        `規模: ${formatMagnitude(raw.Magunitude ?? raw.Magnitude)}`,
         `深さ: ${formatDepth(raw.Depth)}`,
         `予測最大震度: ${raw.MaxIntensity || scaleText(maxPred)}`,
         `${finalText} / Event ID: ${raw.EventID || "不明"}`,
@@ -909,9 +909,9 @@
       const title = `地震情報 最大震度${scaleText(maxScale)}`;
       const body = [
         `震源: ${hypo.name || "不明"}`,
-        `規模: ${hypo.magnitude ? "M" + hypo.magnitude : "不明"}`,
+        `規模: ${formatMagnitude(hypo.magnitude)}`,
         `深さ: ${formatDepth(hypo.depth)}`,
-        `津波: ${raw.comments?.forecast || raw.earthquake?.domesticTsunami || "不明"}`,
+        `津波: ${formatTsunamiComment(raw.comments?.forecast || raw.earthquake?.domesticTsunami)}`,
         topPoints(raw.points)
       ].filter(Boolean).join("\n");
 
@@ -969,7 +969,7 @@
       const title = raw.cancelled ? "緊急地震速報 取消" : `緊急地震速報（${eewLabel}） 予測最大震度${scaleText(maxPred)}`;
       const body = raw.cancelled ? "緊急地震速報は取り消されました。" : [
         `震源: ${hypo.name || "不明"}`,
-        `規模: ${hypo.magnitude ? "M" + hypo.magnitude : "不明"}`,
+        `規模: ${formatMagnitude(hypo.magnitude)}`,
         `深さ: ${formatDepth(hypo.depth)}`,
         `第${raw.issue?.serial || "?"}報 / Event ID: ${raw.issue?.eventId || "不明"}`,
         `区分: ${eewLabel}`,
@@ -1247,7 +1247,7 @@
       ctx.font = "800 22px system-ui, sans-serif";
       ctx.fillText("地震発生時", x + 18, y + 32);
 
-      const magnitude = mapData.magnitude ? `M${mapData.magnitude}` : "M不明";
+      const magnitude = formatMagnitude(mapData.magnitude);
       const depth = mapData.depth !== undefined ? formatDepth(mapData.depth) : "深さ不明";
       const rows = [
         ["マグニチュード", magnitude],
@@ -1953,7 +1953,7 @@
       ctx.font = "18px system-ui, sans-serif";
       const details = [
         mapData.name ? `震央: ${mapData.name}` : "",
-        mapData.magnitude ? `M${mapData.magnitude}` : "",
+        formatMagnitude(mapData.magnitude),
         mapData.depth !== undefined ? `深さ ${formatDepth(mapData.depth)}` : "",
         evt.meta ? String(evt.meta) : ""
       ].filter(Boolean).join(" / ");
@@ -2291,6 +2291,17 @@
       if (depth === undefined || depth === null || depth === -1) return "不明";
       if (Number(depth) === 0) return "ごく浅い";
       return `${depth}km`;
+    }
+
+    function formatMagnitude(magnitude) {
+      const n = Number(magnitude);
+      if (magnitude === undefined || magnitude === null || magnitude === "" || n === -1) return "M調査中";
+      return `M${magnitude}`;
+    }
+
+    function formatTsunamiComment(value) {
+      if (value === undefined || value === null || value === "" || value === "None" || value === "none") return "心配なし";
+      return String(value).replace(/^None$/i, "心配なし");
     }
 
     function scaleText(scale) {
