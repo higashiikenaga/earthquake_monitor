@@ -1,0 +1,2224 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0b1020" />
+  <meta name="application-name" content="EEW Notify" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="EEW Notify" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <title>地震・EEW・津波 タスクバー通知</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b1020;
+      --panel: #131a2e;
+      --panel2: #19223a;
+      --text: #f5f7fb;
+      --muted: #a9b4cc;
+      --line: rgba(255,255,255,.12);
+      --ok: #56d364;
+      --warn: #f2cc60;
+      --danger: #ff6b6b;
+      --accent: #7aa2ff;
+      --tsunami: #73d2de;
+      --shadow: 0 20px 60px rgba(0,0,0,.35);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      height: 100vh;
+      overflow: hidden;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at 20% 0%, rgba(122,162,255,.22), transparent 32rem),
+        radial-gradient(circle at 95% 10%, rgba(115,210,222,.16), transparent 25rem),
+        var(--bg);
+      color: var(--text);
+    }
+
+    main {
+      width: min(1500px, calc(100% - 24px));
+      height: 100vh;
+      margin: 0 auto;
+      padding: 12px 0;
+      display: grid;
+      grid-template-columns: 320px minmax(0, 1fr) 340px;
+      grid-template-rows: minmax(0, 1fr) minmax(0, .75fr);
+      gap: 12px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.4fr .8fr;
+      gap: 20px;
+      align-items: stretch;
+      grid-column: 1;
+      grid-row: 1;
+      grid-template-columns: 1fr;
+    }
+
+    .card {
+      background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+      padding: 16px;
+      backdrop-filter: blur(10px);
+      min-height: 0;
+      overflow: auto;
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: 24px;
+      letter-spacing: 0;
+      line-height: 1.05;
+    }
+
+    h2 {
+      margin: 0 0 10px;
+      font-size: 16px;
+      letter-spacing: 0;
+    }
+
+    p { color: var(--muted); line-height: 1.55; }
+
+    .statusRow {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 20px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.06);
+      color: var(--text);
+      border-radius: 999px;
+      padding: 8px 12px;
+      font-size: 13px;
+    }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--muted);
+      box-shadow: 0 0 18px currentColor;
+    }
+    .dot.ok { background: var(--ok); color: var(--ok); }
+    .dot.warn { background: var(--warn); color: var(--warn); }
+    .dot.danger { background: var(--danger); color: var(--danger); }
+
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 20px;
+    }
+
+    button, select, input[type="url"], input[type="text"] {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(255,255,255,.08);
+      color: var(--text);
+      padding: 12px 14px;
+      font: inherit;
+      outline: none;
+    }
+
+    button {
+      cursor: pointer;
+      font-weight: 700;
+      transition: transform .12s ease, border-color .12s ease, background .12s ease;
+    }
+    button:hover { transform: translateY(-1px); border-color: rgba(122,162,255,.55); }
+    button.primary { background: linear-gradient(135deg, rgba(122,162,255,.9), rgba(115,210,222,.75)); color: #071025; }
+    button.danger { background: rgba(255,107,107,.16); border-color: rgba(255,107,107,.35); }
+
+    label {
+      display: grid;
+      gap: 7px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .settings {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-top: 20px;
+    }
+
+    .toggles {
+      display: grid;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .toggle {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text);
+      font-size: 14px;
+    }
+    .toggle input { transform: scale(1.15); }
+
+    .feed {
+      display: grid;
+      gap: 12px;
+      margin-top: 20px;
+    }
+
+    .dashboard {
+      display: grid;
+      grid-template-columns: 1.15fr .85fr;
+      gap: 16px;
+      margin-top: 20px;
+    }
+
+    .dashPanel {
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.045);
+      border-radius: 18px;
+      padding: 16px;
+      min-width: 0;
+    }
+
+    .dashGrid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px;
+      background: rgba(0,0,0,.16);
+      min-height: 74px;
+    }
+    .metricLabel { color: var(--muted); font-size: 12px; margin-bottom: 5px; }
+    .metricValue { font-size: 16px; font-weight: 800; line-height: 1.35; word-break: keep-all; overflow-wrap: anywhere; }
+
+    .latestDetail {
+      white-space: pre-wrap;
+      color: #d8def0;
+      line-height: 1.6;
+      min-height: 154px;
+    }
+
+    .historyList {
+      display: grid;
+      gap: 8px;
+      max-height: 308px;
+      overflow: auto;
+    }
+    .historyItem {
+      border: 1px solid var(--line);
+      border-left: 4px solid var(--accent);
+      border-radius: 12px;
+      padding: 10px;
+      background: rgba(0,0,0,.14);
+    }
+    .historyItem.eew { border-left-color: var(--danger); }
+    .historyItem.quake { border-left-color: var(--warn); }
+    .historyItem.tsunami { border-left-color: var(--tsunami); }
+    .historyItem.scale-10 { border-left-color: #9cc9ff; }
+    .historyItem.scale-20 { border-left-color: #4eb3d3; }
+    .historyItem.scale-30 { border-left-color: #63c660; }
+    .historyItem.scale-40 { border-left-color: #f2df64; }
+    .historyItem.scale-45 { border-left-color: #ffc400; }
+    .historyItem.scale-50 { border-left-color: #ff8c1a; }
+    .historyItem.scale-55 { border-left-color: #e85d2a; }
+    .historyItem.scale-60 { border-left-color: #c72f2f; }
+    .historyItem.scale-70 { border-left-color: #b40068; }
+    .historyTitle { font-weight: 800; font-size: 13px; margin-bottom: 3px; }
+    .historyMeta { color: var(--muted); font-size: 12px; line-height: 1.45; }
+
+    .kmoniFrame {
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(0,0,0,.22);
+      object-fit: contain;
+      display: block;
+    }
+
+    .kmoniToolbar {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .kmoniToolbar select { max-width: 190px; }
+    .kmoniToolbar button { max-width: 120px; padding: 10px 12px; }
+
+    .event {
+      border: 1px solid var(--line);
+      border-left: 6px solid var(--accent);
+      background: rgba(255,255,255,.045);
+      border-radius: 18px;
+      padding: 16px;
+      animation: slideIn .25s ease both;
+    }
+    .event.eew { border-left-color: var(--danger); }
+    .event.quake { border-left-color: var(--warn); }
+    .event.tsunami { border-left-color: var(--tsunami); }
+    .event.test { border-left-color: var(--ok); }
+
+    .eventTop {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: start;
+    }
+
+    .eventTitle { font-weight: 800; font-size: 17px; margin-bottom: 6px; }
+    .eventMeta { color: var(--muted); font-size: 13px; line-height: 1.55; }
+    .eventBody { margin-top: 10px; color: #d8def0; white-space: pre-wrap; line-height: 1.65; }
+
+    .badge {
+      border-radius: 999px;
+      padding: 6px 10px;
+      background: rgba(255,255,255,.08);
+      color: var(--text);
+      border: 1px solid var(--line);
+      white-space: nowrap;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    pre {
+      margin: 14px 0 0;
+      max-height: 230px;
+      overflow: auto;
+      border-radius: 16px;
+      border: 1px solid var(--line);
+      background: rgba(0,0,0,.25);
+      padding: 12px;
+      color: #cfe0ff;
+      font-size: 12px;
+    }
+
+    .note {
+      margin-top: 14px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.7;
+    }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .statusRow, .controls, .settings, .toggles, .feed, .dashboard { margin-top: 10px; }
+    button, select, input[type="url"], input[type="text"] { padding: 10px 12px; }
+    .dashboard { gap: 10px; }
+    .dashPanel { padding: 12px; }
+    .dashGrid { margin-bottom: 10px; }
+    .metric { min-height: 58px; }
+    .metricValue { font-size: 14px; }
+    .latestDetail { min-height: 88px; max-height: 150px; overflow: auto; font-size: 13px; }
+    .historyList { max-height: 150px; }
+    .event { padding: 12px; }
+    .eventTitle { font-size: 14px; margin-bottom: 4px; }
+    .eventMeta { font-size: 12px; }
+    .eventBody { font-size: 13px; line-height: 1.5; margin-top: 8px; }
+    .note { margin-top: 8px; font-size: 12px; line-height: 1.5; }
+
+    main > section:nth-of-type(2) {
+      grid-column: 2;
+      grid-row: 1 / span 2;
+      margin-top: 0 !important;
+    }
+
+    main > section:nth-of-type(3),
+    main > section:nth-of-type(4) {
+      grid-column: 3;
+      margin-top: 0 !important;
+    }
+
+    main > section:nth-of-type(3) { grid-row: 1; }
+    main > section:nth-of-type(4) { grid-row: 2; }
+    main > section:nth-of-type(5) {
+      grid-column: 1;
+      grid-row: 2;
+      margin-top: 0 !important;
+    }
+    main > section:nth-of-type(5) .feed { max-height: 220px; overflow: auto; }
+
+    @media (max-width: 860px) {
+      body { height: auto; overflow: auto; }
+      main { display: block; height: auto; width: min(100% - 20px, 760px); }
+      main > section { margin-top: 12px !important; }
+      .hero, .settings, .controls, .dashboard, .dashGrid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="hero">
+      <div class="card">
+        <h1>地震・緊急地震速報・津波通知</h1>
+        <p>
+          P2P地震情報 WebSocket API を購読し、ブラウザの通知機能でデスクトップ通知を出します。
+          Windows なら通知センター、macOS なら通知センターに表示されます。ページを開いたまま使ってください。
+        </p>
+
+        <div class="statusRow">
+          <span class="pill"><span id="wsDot" class="dot"></span><span id="wsStatus">未接続</span></span>
+          <span class="pill">通知: <span id="notifyStatus">未確認</span></span>
+          <span class="pill">受信: <span id="count">0</span> 件</span>
+          <span class="pill">最終受信: <span id="lastSeen">なし</span></span>
+        </div>
+
+        <div class="controls">
+          <button class="primary" id="connectBtn">接続</button>
+          <button id="notifyBtn">通知を許可</button>
+          <button id="testBtn">テスト通知</button>
+          <button class="danger" id="disconnectBtn">切断</button>
+        </div>
+      </div>
+
+      <aside class="card">
+        <h2>通知設定</h2>
+        <div class="settings">
+          <label>
+            地震通知の最小震度
+            <select id="minScale">
+              <option value="10">震度1以上</option>
+              <option value="20">震度2以上</option>
+              <option value="30" selected>震度3以上</option>
+              <option value="40">震度4以上</option>
+              <option value="45">震度5弱以上</option>
+              <option value="50">震度5強以上</option>
+              <option value="55">震度6弱以上</option>
+              <option value="60">震度6強以上</option>
+            </select>
+          </label>
+          <label>
+            津波通知
+            <select id="tsunamiMode">
+              <option value="all" selected>すべて</option>
+              <option value="warn">警報・注意報のみ</option>
+              <option value="major">大津波・津波警報のみ</option>
+            </select>
+          </label>
+          <label>
+            EEW通知
+            <select id="eewMode">
+              <option value="all" selected>予報・警報・検出</option>
+              <option value="warning">警報優先</option>
+              <option value="off">通知しない</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="toggles">
+          <label class="toggle"><input type="checkbox" id="sound" checked /> 通知音を鳴らす</label>
+          <label class="toggle"><input type="checkbox" id="dedupe" checked /> 同じIDの重複通知を抑止</label>
+          <label class="toggle"><input type="checkbox" id="autoReconnect" checked /> 切断時に自動再接続</label>
+        </div>
+      </aside>
+    </section>
+
+    <section class="card" style="margin-top:20px">
+      <h2>総合モニタ</h2>
+      <div class="dashboard">
+        <div class="dashPanel">
+          <div class="dashGrid">
+            <div class="metric">
+              <div class="metricLabel">緊急地震速報</div>
+              <div id="eewSummary" class="metricValue">受信なし</div>
+            </div>
+            <div class="metric">
+              <div class="metricLabel">最新地震</div>
+              <div id="latestQuakeSummary" class="metricValue">受信なし</div>
+            </div>
+            <div class="metric">
+              <div class="metricLabel">強震モニタ</div>
+              <div id="kmoniSummary" class="metricValue">未取得</div>
+            </div>
+          </div>
+          <h2>最新の地震情報</h2>
+          <div id="latestDetail" class="latestDetail">まだ地震情報を受信していません。</div>
+        </div>
+        <div class="dashPanel">
+          <div class="kmoniToolbar">
+            <select id="kmoniLayer">
+              <option value="jma_s" selected>リアルタイム震度</option>
+              <option value="acmap_s">最大加速度</option>
+            </select>
+            <button id="kmoniRefreshBtn">更新</button>
+          </div>
+          <img id="kmoniImage" class="kmoniFrame" alt="強震モニタ" />
+          <p class="note" id="kmoniTime">強震モニタ画像を読み込みます。</p>
+        </div>
+      </div>
+      <div class="dashboard">
+        <div class="dashPanel">
+          <h2>過去10件の地震履歴</h2>
+          <div id="quakeHistory" class="historyList"></div>
+        </div>
+        <div class="dashPanel">
+          <h2>EEW発表状況</h2>
+          <div id="eewDetail" class="latestDetail">緊急地震速報は受信していません。</div>
+        </div>
+      </div>
+      <p class="note">
+        強震モニタは防災科研のリアルタイム表示です。表示内容と気象庁震度は一致しない場合があり、画像の転載・再配布には利用条件の確認が必要です。
+      </p>
+    </section>
+
+    <section class="card" style="margin-top:20px">
+      <h2>データソース</h2>
+      <label>
+        WebSocket URL
+        <input id="wsUrl" type="url" value="wss://api.p2pquake.net/v2/ws" />
+      </label>
+      <label style="margin-top:12px">
+        EEW WebSocket URL
+        <input id="eewWsUrl" type="url" value="wss://ws-api.wolfx.jp/jma_eew" />
+      </label>
+      <p class="note">
+        標準では地震・津波を P2P地震情報、緊急地震速報を Wolfx JMA EEW WebSocket から受信します。
+        APIキーをHTMLに直書きすると漏れるため、公開運用ではサーバー側の中継を推奨します。
+      </p>
+    </section>
+
+    <section class="card" style="margin-top:20px">
+      <h2>Discord Webhook</h2>
+      <label>
+        Discord Webhook URL
+        <input id="discordWebhookUrl" type="url" placeholder="https://discord.com/api/webhooks/..." />
+      </label>
+      <div class="toggles">
+        <label class="toggle"><input type="checkbox" id="discordEnabled" /> Discordにも送信する</label>
+        <label class="toggle"><input type="checkbox" id="discordMention" /> EEW・津波だけ @everyone を付ける</label>
+        <label class="toggle"><input type="checkbox" id="discordMapEnabled" checked /> Discordに地図画像を添付する</label>
+      </div>
+      <div class="controls" style="grid-template-columns: repeat(2, minmax(0, 1fr));">
+        <button id="discordTestBtn">Discordテスト送信</button>
+        <button id="clearWebhookBtn" class="danger">Webhook URLを消去</button>
+      </div>
+      <p class="note">
+        Webhook URLはパスワードに近い扱いです。HTMLを配布したりGitHubへ置いたりする場合はURLを入れたままにしないでください。
+        公開運用では Cloudflare Workers などで中継し、DiscordのURLをブラウザに見せない構成がおすすめです。
+      </p>
+    </section>
+
+    <section class="card" style="margin-top:20px">
+      <h2>受信ログ</h2>
+      <div id="feed" class="feed"></div>
+    </section>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    registerServiceWorker();
+
+    function registerServiceWorker() {
+      if (!("serviceWorker" in navigator)) return;
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("./sw.js").catch((error) => {
+          console.warn("service worker registration failed", error);
+        });
+      });
+    }
+
+    const state = {
+      ws: null,
+      eewWs: null,
+      count: 0,
+      reconnectTimer: null,
+      eewReconnectTimer: null,
+      connectionGeneration: 0,
+      events: [],
+      lastEew: null,
+      latestQuake: null,
+      kmoniTimer: null,
+      kmoniRetry: 0,
+      kmoniDate: null,
+      lastKmoniOkDate: null,
+      kmoniChecking: false,
+      kmoniLoading: false,
+      kmoniNextTimer: null,
+      kmoniLastAlert: { level: "", time: 0 },
+      japanSvgMapPromise: null,
+      seen: new Set(JSON.parse(localStorage.getItem("eq_seen_ids") || "[]")),
+      maxSeen: 300,
+    };
+
+    const els = {
+      wsDot: $("wsDot"), wsStatus: $("wsStatus"), notifyStatus: $("notifyStatus"), count: $("count"), lastSeen: $("lastSeen"),
+      connectBtn: $("connectBtn"), notifyBtn: $("notifyBtn"), testBtn: $("testBtn"), disconnectBtn: $("disconnectBtn"), feed: $("feed"),
+      eewSummary: $("eewSummary"), latestQuakeSummary: $("latestQuakeSummary"), kmoniSummary: $("kmoniSummary"), latestDetail: $("latestDetail"), quakeHistory: $("quakeHistory"), eewDetail: $("eewDetail"),
+      kmoniLayer: $("kmoniLayer"), kmoniRefreshBtn: $("kmoniRefreshBtn"), kmoniImage: $("kmoniImage"), kmoniTime: $("kmoniTime"),
+      minScale: $("minScale"), tsunamiMode: $("tsunamiMode"), eewMode: $("eewMode"), sound: $("sound"), dedupe: $("dedupe"), autoReconnect: $("autoReconnect"), wsUrl: $("wsUrl"), eewWsUrl: $("eewWsUrl"),
+      discordWebhookUrl: $("discordWebhookUrl"), discordEnabled: $("discordEnabled"), discordMention: $("discordMention"), discordMapEnabled: $("discordMapEnabled"), discordTestBtn: $("discordTestBtn"), clearWebhookBtn: $("clearWebhookBtn")
+    };
+
+    const settingsKeys = ["minScale", "tsunamiMode", "eewMode", "sound", "dedupe", "autoReconnect", "wsUrl", "eewWsUrl", "kmoniLayer", "discordWebhookUrl", "discordEnabled", "discordMention", "discordMapEnabled"];
+    for (const key of settingsKeys) {
+      const saved = localStorage.getItem("eq_" + key);
+      if (saved !== null) {
+        if (els[key].type === "checkbox") els[key].checked = saved === "true";
+        else els[key].value = saved;
+      }
+      els[key].addEventListener("change", () => {
+        localStorage.setItem("eq_" + key, els[key].type === "checkbox" ? String(els[key].checked) : els[key].value);
+      });
+    }
+
+    updateNotificationStatus();
+    updateDashboard();
+    loadInitialQuakeHistory();
+    updateKmoniImage(true);
+
+    els.notifyBtn.addEventListener("click", requestNotifications);
+    els.connectBtn.addEventListener("click", connect);
+    els.disconnectBtn.addEventListener("click", disconnect);
+    els.kmoniRefreshBtn.addEventListener("click", () => updateKmoniImage(true));
+    els.kmoniLayer.addEventListener("change", () => updateKmoniImage(true));
+    els.testBtn.addEventListener("click", () => {
+      const evt = {
+        id: "test-" + Date.now(),
+        kind: "test",
+        title: "テスト通知",
+        badge: "TEST",
+        body: "通知が表示されれば準備完了です。",
+        meta: new Date().toLocaleString("ja-JP"),
+        raw: { test: true }
+      };
+      pushEvent(evt, true);
+    });
+
+    els.discordTestBtn.addEventListener("click", async () => {
+      const evt = {
+        id: "discord-test-" + Date.now(),
+        kind: "test",
+        title: "Discordテスト送信",
+        badge: "TEST",
+        body: "Discord Webhookへの送信テストです。\n地図描画テスト用のサンプル震源・観測点を添付します。",
+        meta: new Date().toLocaleString("ja-JP"),
+        raw: {
+          discordTest: true,
+          earthquake: {
+            time: new Date().toLocaleString("ja-JP"),
+            maxScale: 50,
+            hypocenter: {
+              name: "地図描画テスト震源",
+              latitude: 36.2,
+              longitude: 140.1,
+              magnitude: 5.8,
+              depth: 40
+            }
+          },
+          points: [
+            { pref: "茨城県", addr: "水戸市", latitude: 36.3658, longitude: 140.4712, scale: 50 },
+            { pref: "栃木県", addr: "宇都宮市", latitude: 36.5551, longitude: 139.8828, scale: 45 },
+            { pref: "福島県", addr: "いわき市", latitude: 37.0505, longitude: 140.8877, scale: 40 },
+            { pref: "千葉県", addr: "千葉市", latitude: 35.6074, longitude: 140.1065, scale: 30 },
+            { pref: "東京都", addr: "千代田区", latitude: 35.6938, longitude: 139.7536, scale: 30 },
+            { pref: "宮城県", addr: "仙台市", latitude: 38.2682, longitude: 140.8694, scale: 20 }
+          ]
+        }
+      };
+      await sendDiscordWebhook(evt);
+    });
+
+    els.clearWebhookBtn.addEventListener("click", () => {
+      els.discordWebhookUrl.value = "";
+      els.discordEnabled.checked = false;
+      localStorage.removeItem("eq_discordWebhookUrl");
+      localStorage.setItem("eq_discordEnabled", "false");
+      alert("Webhook URLを消去しました。");
+    });
+
+    async function requestNotifications() {
+      if (!("Notification" in window)) {
+        alert("このブラウザはNotification APIに対応していません。");
+        return false;
+      }
+      const permission = await Notification.requestPermission();
+      updateNotificationStatus();
+      return permission === "granted";
+    }
+
+    function updateNotificationStatus() {
+      els.notifyStatus.textContent = !("Notification" in window) ? "非対応" : Notification.permission;
+    }
+
+    function setWsStatus(type, text) {
+      els.wsDot.className = "dot " + (type || "");
+      els.wsStatus.textContent = text;
+    }
+
+    function connect() {
+      state.connectionGeneration += 1;
+      disconnect(false);
+      connectMainWs(state.connectionGeneration);
+      connectEewWs(state.connectionGeneration);
+    }
+
+    function connectMainWs(generation = state.connectionGeneration) {
+      if (generation !== state.connectionGeneration) return;
+      const url = els.wsUrl.value.trim();
+      if (!url) return;
+      setWsStatus("warn", "接続中");
+      const ws = new WebSocket(url);
+      state.ws = ws;
+
+      ws.addEventListener("open", () => {
+        if (generation !== state.connectionGeneration) return;
+        setWsStatus("ok", state.eewWs?.readyState === WebSocket.OPEN ? "接続中 / EEW接続中" : "接続中");
+      });
+      ws.addEventListener("message", (msg) => {
+        if (generation !== state.connectionGeneration) return;
+        try {
+          const raw = JSON.parse(msg.data);
+          const normalized = normalizeP2PEvent(raw) || normalizeCustomEvent(raw);
+          if (!normalized) return;
+          pushEvent(normalized, shouldNotify(normalized));
+        } catch (error) {
+          console.warn("parse error", error, msg.data);
+        }
+      });
+      ws.addEventListener("error", () => {
+        if (generation === state.connectionGeneration) setWsStatus("danger", "エラー");
+      });
+      ws.addEventListener("close", () => {
+        if (generation !== state.connectionGeneration) return;
+        setWsStatus(state.eewWs?.readyState === WebSocket.OPEN ? "ok" : "", state.eewWs?.readyState === WebSocket.OPEN ? "EEWのみ接続中" : "切断");
+        if (els.autoReconnect.checked) {
+          clearTimeout(state.reconnectTimer);
+          state.reconnectTimer = setTimeout(() => connectMainWs(generation), 3500);
+        }
+      });
+    }
+
+    function connectEewWs(generation = state.connectionGeneration) {
+      if (generation !== state.connectionGeneration) return;
+      const url = els.eewWsUrl.value.trim();
+      if (!url || els.eewMode.value === "off") return;
+      const ws = new WebSocket(url);
+      state.eewWs = ws;
+
+      ws.addEventListener("open", () => {
+        if (generation !== state.connectionGeneration) return;
+        setWsStatus("ok", state.ws?.readyState === WebSocket.OPEN ? "接続中 / EEW接続中" : "EEW接続中");
+      });
+      ws.addEventListener("message", (msg) => {
+        if (generation !== state.connectionGeneration) return;
+        try {
+          const raw = JSON.parse(msg.data);
+          if (raw?.type === "heartbeat") {
+            if (ws.readyState === WebSocket.OPEN) ws.send("ping");
+            return;
+          }
+          if (raw?.type === "pong") return;
+          const normalized = normalizeWolfxEew(raw) || normalizeCustomEvent(raw);
+          if (!normalized) return;
+          pushEvent(normalized, shouldNotify(normalized));
+        } catch (error) {
+          console.warn("eew parse error", error, msg.data);
+        }
+      });
+      ws.addEventListener("error", () => {
+        if (generation !== state.connectionGeneration) return;
+        if (!state.ws || state.ws.readyState !== WebSocket.OPEN) setWsStatus("danger", "EEWエラー");
+      });
+      ws.addEventListener("close", () => {
+        if (generation !== state.connectionGeneration) return;
+        setWsStatus(state.ws?.readyState === WebSocket.OPEN ? "ok" : "", state.ws?.readyState === WebSocket.OPEN ? "接続中" : "EEW切断");
+        if (els.autoReconnect.checked && els.eewMode.value !== "off") {
+          clearTimeout(state.eewReconnectTimer);
+          state.eewReconnectTimer = setTimeout(() => connectEewWs(generation), 3500);
+        }
+      });
+    }
+
+    function disconnect(disableReconnect = true) {
+      if (disableReconnect) {
+        state.connectionGeneration += 1;
+        clearTimeout(state.reconnectTimer);
+        clearTimeout(state.eewReconnectTimer);
+      }
+      if (state.ws) {
+        state.ws.onclose = null;
+        state.ws.close();
+        state.ws = null;
+      }
+      if (state.eewWs) {
+        state.eewWs.onclose = null;
+        state.eewWs.close();
+        state.eewWs = null;
+      }
+      setWsStatus("", "未接続");
+    }
+
+    function normalizeP2PEvent(raw) {
+      if (!raw || typeof raw !== "object" || typeof raw.code !== "number") return null;
+
+      switch (raw.code) {
+        case 551: return normalizeQuake(raw);
+        case 552: return normalizeTsunami(raw);
+        case 554: return normalizeEewDetection(raw);
+        case 556: return normalizeEew(raw);
+        default: return null;
+      }
+    }
+
+    function normalizeWolfxEew(raw) {
+      if (!raw || typeof raw !== "object" || String(raw.type || "").toLowerCase() !== "jma_eew") return null;
+
+      const areas = normalizeWolfxWarnAreas(raw.WarnArea);
+      const maxPred = intensityTextToScale(raw.MaxIntensity) || areas.reduce((m, a) => Math.max(m, Number(a.scaleTo || a.scaleFrom || 0)), 0);
+      const eewLevel = raw.isWarn ? "warning" : "forecast";
+      const eewLabel = eewLevel === "warning" ? "警報" : "予報";
+      const cancelled = Boolean(raw.isCancel) || String(raw.Issue?.Status || "").includes("取消");
+      const finalText = raw.isFinal ? "最終報" : `第${raw.Serial || "?"}報`;
+      const normalizedRaw = {
+        ...raw,
+        cancelled,
+        issue: {
+          eventId: raw.EventID,
+          serial: raw.Serial,
+          time: raw.AnnouncedTime,
+          status: raw.Issue?.Status,
+          source: raw.Issue?.Source
+        },
+        earthquake: {
+          time: raw.OriginTime,
+          maxScale: maxPred,
+          hypocenter: {
+            name: raw.Hypocenter,
+            latitude: raw.Latitude,
+            longitude: raw.Longitude,
+            magnitude: raw.Magunitude ?? raw.Magnitude,
+            depth: raw.Depth
+          }
+        },
+        areas
+      };
+
+      const body = cancelled ? "緊急地震速報は取り消されました。" : [
+        `震源: ${raw.Hypocenter || "不明"}`,
+        `規模: ${raw.Magunitude || raw.Magnitude ? "M" + (raw.Magunitude ?? raw.Magnitude) : "不明"}`,
+        `深さ: ${formatDepth(raw.Depth)}`,
+        `予測最大震度: ${raw.MaxIntensity || scaleText(maxPred)}`,
+        `${finalText} / Event ID: ${raw.EventID || "不明"}`,
+        `区分: ${eewLabel}${raw.isTraining ? " / 訓練報" : ""}${raw.isAssumption ? " / 仮定震源" : ""}`,
+        areas.slice(0, 10).map(a => `${a.name}: ${scaleText(a.scaleFrom)}〜${scaleText(a.scaleTo)}${a.arrivalTime ? " / 到達予測 " + a.arrivalTime : ""}${a.arrived ? " / 到達済み" : ""}`).join("\n")
+      ].filter(Boolean).join("\n");
+
+      return {
+        id: `wolfx-${raw.EventID || Date.now()}-${raw.Serial || ""}-${cancelled ? "cancel" : eewLevel}`,
+        kind: "eew",
+        title: cancelled ? "緊急地震速報 取消" : `緊急地震速報（${eewLabel}） 予測最大震度${raw.MaxIntensity || scaleText(maxPred)}`,
+        badge: cancelled ? "取消" : `EEW${eewLabel}`,
+        body,
+        meta: raw.AnnouncedTime || "",
+        eewLevel,
+        raw: normalizedRaw
+      };
+    }
+
+    function normalizeWolfxWarnAreas(warnArea) {
+      const list = Array.isArray(warnArea) ? warnArea : warnArea ? [warnArea] : [];
+      return list.map((area) => {
+        const name = area.Chiiki || area.Name || area.name || area.area || "";
+        return {
+          name,
+          scaleFrom: intensityTextToScale(area.Shindo2 ?? area.IntensityMin ?? area.scaleFrom ?? area.scale),
+          scaleTo: intensityTextToScale(area.Shindo1 ?? area.IntensityMax ?? area.scaleTo ?? area.scale),
+          arrivalTime: area.Time || area.ArrivalTime || "",
+          type: area.Type || "",
+          mapType: "eew",
+          arrived: Boolean(area.Arrive)
+        };
+      }).filter((area) => area.name || area.scaleFrom || area.scaleTo);
+    }
+
+    function intensityTextToScale(value) {
+      if (value === undefined || value === null || value === "") return 0;
+      if (typeof value === "number") return value;
+      const text = String(value);
+      if (text.includes("7")) return 70;
+      if (text.includes("6強")) return 60;
+      if (text.includes("6弱")) return 55;
+      if (text.includes("5強")) return 50;
+      if (text.includes("5弱")) return 45;
+      if (text.includes("4")) return 40;
+      if (text.includes("3")) return 30;
+      if (text.includes("2")) return 20;
+      if (text.includes("1")) return 10;
+      const n = Number(text);
+      return Number.isFinite(n) ? n : 0;
+    }
+
+    function normalizeQuake(raw) {
+      const hypo = raw.earthquake?.hypocenter || {};
+      const maxScale = raw.earthquake?.maxScale ?? raw.points?.reduce((m, p) => Math.max(m, p.scale || 0), 0) ?? 0;
+      const title = `地震情報 最大震度${scaleText(maxScale)}`;
+      const body = [
+        `震源: ${hypo.name || "不明"}`,
+        `規模: ${hypo.magnitude ? "M" + hypo.magnitude : "不明"}`,
+        `深さ: ${formatDepth(hypo.depth)}`,
+        `津波: ${raw.comments?.forecast || raw.earthquake?.domesticTsunami || "不明"}`,
+        topPoints(raw.points)
+      ].filter(Boolean).join("\n");
+
+      return {
+        id: raw.id || raw.issue?.time + "-551",
+        kind: "quake",
+        title,
+        badge: "地震",
+        body,
+        meta: raw.earthquake?.time || raw.issue?.time || "",
+        scale: Number(maxScale || 0),
+        source: raw.source || "",
+        raw
+      };
+    }
+
+    function normalizeTsunami(raw) {
+      const areas = raw.areas || [];
+      const strongest = strongestTsunamiGrade(areas);
+      const title = raw.cancelled ? "津波情報 解除" : `津波情報 ${gradeLabel(strongest)}`;
+      const body = raw.cancelled
+        ? "津波予報は解除されました。"
+        : areas.slice(0, 10).map(a => `${a.name}: ${gradeLabel(a.grade)} / 最大 ${a.maxHeight?.description || "不明"}${a.immediate ? " / 到達中または直ちに到達" : ""}`).join("\n");
+      return {
+        id: raw.id || raw.issue?.time + "-552",
+        kind: "tsunami",
+        title,
+        badge: raw.cancelled ? "解除" : gradeLabel(strongest),
+        body: body || "津波情報を受信しました。",
+        meta: raw.issue?.time || "",
+        tsunamiGrade: strongest,
+        raw
+      };
+    }
+
+    function normalizeEewDetection(raw) {
+      return {
+        id: raw.id || Date.now() + "-554",
+        kind: "eew",
+        title: "緊急地震速報 発表検出",
+        badge: "EEW検出",
+        body: `検出種類: ${raw.type || "不明"}`,
+        meta: raw.time || "",
+        eewLevel: "detection",
+        raw
+      };
+    }
+
+    function normalizeEew(raw) {
+      const hypo = raw.earthquake?.hypocenter || {};
+      const areas = raw.areas || [];
+      const maxPred = areas.reduce((m, a) => Math.max(m, Number(a.scaleTo || a.scaleFrom || 0)), 0);
+      const eewLevel = detectEewLevel(raw);
+      const eewLabel = eewLevel === "warning" ? "警報" : "予報";
+      const title = raw.cancelled ? "緊急地震速報 取消" : `緊急地震速報（${eewLabel}） 予測最大震度${scaleText(maxPred)}`;
+      const body = raw.cancelled ? "緊急地震速報は取り消されました。" : [
+        `震源: ${hypo.name || "不明"}`,
+        `規模: ${hypo.magnitude ? "M" + hypo.magnitude : "不明"}`,
+        `深さ: ${formatDepth(hypo.depth)}`,
+        `第${raw.issue?.serial || "?"}報 / Event ID: ${raw.issue?.eventId || "不明"}`,
+        `区分: ${eewLabel}`,
+        areas.slice(0, 10).map(a => `${a.name}: ${scaleText(a.scaleFrom)}〜${scaleText(a.scaleTo)}${a.arrivalTime ? " / 到達予測 " + a.arrivalTime : ""}`).join("\n")
+      ].filter(Boolean).join("\n");
+
+      return {
+        id: `${raw.issue?.eventId || raw.id || Date.now()}-${raw.issue?.serial || ""}-${raw.cancelled ? "cancel" : eewLevel}`,
+        kind: "eew",
+        title,
+        badge: raw.cancelled ? "取消" : `EEW${eewLabel}`,
+        body,
+        meta: raw.issue?.time || "",
+        eewLevel,
+        raw
+      };
+    }
+
+    function detectEewLevel(raw) {
+      const values = [
+        raw.alertflg, raw.alertFlag, raw.warning, raw.isWarning, raw.isWarn,
+        raw.issue?.type, raw.issue?.status, raw.type, raw.kind, raw.category,
+        raw.earthquake?.condition
+      ].filter((value) => value !== undefined && value !== null).map((value) => String(value).toLowerCase());
+
+      if (values.some((value) => value === "true" || value === "警報" || value.includes("warning") || value.includes("warn") || value.includes("alert"))) return "warning";
+      if (values.some((value) => value === "false" || value === "予報" || value.includes("forecast") || value.includes("yoho"))) return "forecast";
+      if (raw.isLastInfo === false || raw.isFinal === false) return "forecast";
+      return "warning";
+    }
+
+    // 契約済みの別WebSocketを使う場合の差し替え口です。
+    // 例: raw.type が "eew.forecast" / "eew.warning" / "earthquake" / "tsunami" のような正規化済みJSONを想定。
+    function normalizeCustomEvent(raw) {
+      const type = String(raw.type || raw.category || raw.event || "").toLowerCase();
+      if (!type) return null;
+
+      if (type.includes("eew.forecast") || (type.includes("eew") && (type.includes("forecast") || type.includes("予報"))) || (type.includes("緊急地震速報") && type.includes("予報"))) {
+        return {
+          id: raw.id || raw.eventId || Date.now() + "-forecast",
+          kind: "eew",
+          title: raw.title || "緊急地震速報（予報）",
+          badge: "EEW予報",
+          body: raw.body || raw.message || JSON.stringify(raw, null, 2),
+          meta: raw.time || raw.issueTime || "",
+          eewLevel: "forecast",
+          raw
+        };
+      }
+      if (type.includes("eew.warning") || (type.includes("eew") && (type.includes("warning") || type.includes("警報"))) || (type.includes("緊急地震速報") && type.includes("警報"))) {
+        return {
+          id: raw.id || raw.eventId || Date.now() + "-warning",
+          kind: "eew",
+          title: raw.title || "緊急地震速報（警報）",
+          badge: "EEW警報",
+          body: raw.body || raw.message || JSON.stringify(raw, null, 2),
+          meta: raw.time || raw.issueTime || "",
+          eewLevel: "warning",
+          raw
+        };
+      }
+      if (type.includes("tsunami")) {
+        return {
+          id: raw.id || Date.now() + "-tsunami",
+          kind: "tsunami",
+          title: raw.title || "津波情報",
+          badge: raw.badge || "津波",
+          body: raw.body || raw.message || JSON.stringify(raw, null, 2),
+          meta: raw.time || raw.issueTime || "",
+          tsunamiGrade: raw.grade || "Watch",
+          raw
+        };
+      }
+      if (type.includes("earthquake") || type.includes("quake")) {
+        return {
+          id: raw.id || Date.now() + "-quake",
+          kind: "quake",
+          title: raw.title || "地震情報",
+          badge: raw.badge || "地震",
+          body: raw.body || raw.message || JSON.stringify(raw, null, 2),
+          meta: raw.time || raw.issueTime || "",
+          scale: raw.scale || raw.maxScale || 0,
+          raw
+        };
+      }
+      return null;
+    }
+
+    function shouldNotify(evt) {
+      if (els.dedupe.checked && evt.id && state.seen.has(evt.id)) return false;
+      if (evt.kind === "quake") return Number(evt.scale || 0) >= Number(els.minScale.value);
+      if (evt.kind === "tsunami") {
+        if (els.tsunamiMode.value === "all") return true;
+        if (els.tsunamiMode.value === "warn") return ["MajorWarning", "Warning", "Watch", "警報", "注意報", "大津波警報", "津波警報", "津波注意報"].includes(evt.tsunamiGrade);
+        if (els.tsunamiMode.value === "major") return ["MajorWarning", "Warning", "大津波警報", "津波警報"].includes(evt.tsunamiGrade);
+      }
+      if (evt.kind === "eew") {
+        if (els.eewMode.value === "off") return false;
+        if (els.eewMode.value === "warning") return evt.eewLevel === "warning";
+        return true;
+      }
+      return true;
+    }
+
+    async function loadInitialQuakeHistory() {
+      try {
+        const res = await fetch("https://api.p2pquake.net/v2/history?codes=551&limit=10");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const list = await res.json();
+        const events = Array.isArray(list) ? list.map((raw) => normalizeQuake(raw)).filter(Boolean) : [];
+        state.events = [
+          ...state.events.filter((evt) => evt.source !== "history"),
+          ...events.map((evt) => ({ ...evt, source: "history" }))
+        ].slice(0, 80);
+        if (!state.latestQuake && events[0]) state.latestQuake = events[0];
+        updateDashboard();
+      } catch (error) {
+        console.warn("history load error", error);
+        const empty = document.createElement("div");
+        empty.className = "historyMeta";
+        empty.textContent = `履歴を読み込めませんでした: ${error.message || error}`;
+        els.quakeHistory.replaceChildren(empty);
+      }
+    }
+
+    function pushEvent(evt, notify) {
+      state.count += 1;
+      els.count.textContent = state.count;
+      els.lastSeen.textContent = new Date().toLocaleTimeString("ja-JP");
+      updateEventState(evt);
+
+      if (evt.id && els.dedupe.checked) rememberId(evt.id);
+
+      const node = document.createElement("article");
+      node.className = `event ${evt.kind}`;
+      node.innerHTML = `
+        <div class="eventTop">
+          <div>
+            <div class="eventTitle"></div>
+            <div class="eventMeta"></div>
+          </div>
+          <span class="badge"></span>
+        </div>
+        <div class="eventBody"></div>
+        <pre hidden></pre>
+      `;
+      node.querySelector(".eventTitle").textContent = evt.title;
+      node.querySelector(".eventMeta").textContent = evt.meta || new Date().toLocaleString("ja-JP");
+      node.querySelector(".badge").textContent = evt.badge || evt.kind;
+      node.querySelector(".eventBody").textContent = evt.body;
+      const pre = node.querySelector("pre");
+      pre.textContent = JSON.stringify(evt.raw, null, 2);
+      node.addEventListener("click", () => pre.hidden = !pre.hidden);
+      els.feed.prepend(node);
+      while (els.feed.children.length > 40) els.feed.lastElementChild.remove();
+      updateDashboard();
+
+      if (notify) {
+        sendNotification(evt);
+        if (els.discordEnabled.checked) sendDiscordWebhook(evt);
+      }
+    }
+
+    function sendNotification(evt) {
+      if (!("Notification" in window)) return;
+      if (Notification.permission !== "granted") return;
+      const notification = new Notification(evt.title, {
+        body: evt.body.replace(/\n/g, " / ").slice(0, 240),
+        tag: evt.id || evt.title,
+        renotify: evt.kind === "eew" || evt.kind === "tsunami",
+        requireInteraction: evt.kind === "eew" || evt.kind === "tsunami",
+      });
+      notification.onclick = () => window.focus();
+      if (els.sound.checked) beep(evt);
+    }
+
+    function updateEventState(evt) {
+      state.events.unshift(evt);
+      state.events = state.events.slice(0, 80);
+      if (evt.kind === "eew") state.lastEew = evt;
+      if (evt.kind === "quake") state.latestQuake = evt;
+      if (evt.raw?.kmoniDetection) els.kmoniSummary.textContent = evt.title;
+    }
+
+    function updateDashboard() {
+      els.eewSummary.textContent = state.lastEew ? `${state.lastEew.badge || "EEW"} / ${state.lastEew.meta || "時刻不明"}` : "受信なし";
+      els.eewDetail.textContent = state.lastEew ? formatDashboardDetail(state.lastEew) : "緊急地震速報は受信していません。";
+      els.latestQuakeSummary.textContent = state.latestQuake ? `${state.latestQuake.badge || "地震"} / ${state.latestQuake.meta || "時刻不明"}` : "受信なし";
+      els.latestDetail.textContent = state.latestQuake ? formatDashboardDetail(state.latestQuake) : "まだ地震情報を受信していません。";
+
+      const history = state.events.filter((evt) => evt.kind === "quake").slice(0, 10);
+      els.quakeHistory.innerHTML = "";
+      if (history.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "historyMeta";
+        empty.textContent = "履歴はまだありません。";
+        els.quakeHistory.append(empty);
+        return;
+      }
+      for (const evt of history) {
+        const item = document.createElement("div");
+        item.className = `historyItem ${evt.kind} scale-${scaleClass(evt.scale)}`;
+        item.innerHTML = `
+          <div class="historyTitle"></div>
+          <div class="historyMeta"></div>
+        `;
+        item.querySelector(".historyTitle").textContent = `${evt.title}${evt.source === "history" ? " / 履歴" : ""}`;
+        item.querySelector(".historyMeta").textContent = `${evt.meta || "時刻不明"} / ${evt.body.replace(/\n/g, " / ").slice(0, 130)}`;
+        els.quakeHistory.append(item);
+      }
+    }
+
+    function scaleClass(scale) {
+      const n = Number(scale || 0);
+      if (n >= 70) return "70";
+      if (n >= 60) return "60";
+      if (n >= 55) return "55";
+      if (n >= 50) return "50";
+      if (n >= 45) return "45";
+      if (n >= 40) return "40";
+      if (n >= 30) return "30";
+      if (n >= 20) return "20";
+      if (n >= 10) return "10";
+      return "0";
+    }
+
+    function formatDashboardDetail(evt) {
+      return [
+        evt.title,
+        evt.meta ? `発表時刻: ${evt.meta}` : "",
+        evt.badge ? `種別: ${evt.badge}` : "",
+        evt.body
+      ].filter(Boolean).join("\n");
+    }
+
+    async function sendDiscordWebhook(evt) {
+      const url = els.discordWebhookUrl.value.trim();
+      if (!url) {
+        alert("Discord Webhook URLを入力してください。");
+        return;
+      }
+
+      const isUrgent = evt.kind === "eew" || evt.kind === "tsunami";
+      const mention = els.discordMention.checked && isUrgent ? "@everyone " : "";
+      const color = evt.raw?.kmoniDetection ? 0xf2cc60 : evt.kind === "eew" ? 0xff6b6b : evt.kind === "tsunami" ? 0x73d2de : evt.kind === "quake" ? 0xf2cc60 : 0x56d364;
+
+      const payload = {
+        username: "地震通知",
+        content: mention + (isUrgent ? `**${evt.title}**` : evt.title),
+        allowed_mentions: els.discordMention.checked && isUrgent ? { parse: ["everyone"] } : { parse: [] },
+        embeds: [{
+          title: evt.title,
+          description: evt.body.slice(0, 3900),
+          color,
+          timestamp: new Date().toISOString(),
+          fields: [
+            { name: "種別", value: evt.badge || evt.kind, inline: true },
+            { name: "発表時刻", value: String(evt.meta || "不明"), inline: true }
+          ],
+          footer: { text: "Earthquake Taskbar Notifier" }
+        }]
+      };
+
+      try {
+        const kmoniLayerLabel = els.kmoniLayer.value === "jma_s" ? "リアルタイム震度" : "最大加速度";
+        const kmoniDate = shouldAttachKmoni(evt) ? getKmoniDateForEvent(evt) : null;
+        const kmoniUrl = kmoniDate ? getKmoniImageUrl(kmoniDate, els.kmoniLayer.value) : "";
+        if (kmoniUrl) {
+          payload.embeds.push({
+            title: "強震モニタ",
+            description: `防災科研 強震モニタ（${kmoniLayerLabel} / ${formatKmoniTime(kmoniDate)}）`,
+            image: { url: kmoniUrl },
+            color: 0x7aa2ff,
+            footer: { text: "NIED Kyoshin Monitor" }
+          });
+        }
+        const mapBlob = els.discordMapEnabled.checked ? await createDiscordMapBlob(evt, color) : null;
+        let request;
+        if (mapBlob) {
+          payload.embeds[0].image = { url: "attachment://earthquake-map.png" };
+          const form = new FormData();
+          form.append("payload_json", JSON.stringify(payload));
+          form.append("files[0]", mapBlob, "earthquake-map.png");
+          request = { method: "POST", body: form };
+        } else {
+          request = {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          };
+        }
+        const res = await fetch(url, request);
+        if (!res.ok) throw new Error(`Discord送信失敗: HTTP ${res.status}`);
+      } catch (error) {
+        console.error(error);
+        addLocalNotice("Discord送信エラー", String(error.message || error));
+      }
+    }
+
+    function shouldAttachKmoni(evt) {
+      return evt.kind === "quake" || evt.kind === "eew" || evt.raw?.kmoniDetection;
+    }
+
+    function getKmoniDateForEvent(evt) {
+      const eventDate = parseEventOccurrenceDate(evt);
+      if (eventDate) return new Date(eventDate.getTime() + 1000);
+      return state.lastKmoniOkDate || new Date(Date.now() - 12000);
+    }
+
+    function parseEventOccurrenceDate(evt) {
+      const raw = evt.raw || {};
+      const candidates = [
+        raw.earthquake?.time,
+        raw.earthquake?.hypocenter?.time,
+        raw.OriginTime,
+        raw.originTime,
+        raw.occurrenceTime,
+        raw.time,
+        evt.meta
+      ];
+      for (const value of candidates) {
+        const date = parseDateLike(value);
+        if (date) return date;
+      }
+      return null;
+    }
+
+    function parseDateLike(value) {
+      if (!value) return null;
+      if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+      const text = String(value).trim();
+      let normalized = text.replace(/\//g, "-").replace(" ", "T");
+      if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(normalized)) normalized += ":00";
+      if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(normalized)) normalized += "+09:00";
+      const date = new Date(normalized);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+
+    function updateKmoniImage(force) {
+      if (state.kmoniLoading && !force) return;
+      clearTimeout(state.kmoniNextTimer);
+      state.kmoniLoading = true;
+      const date = new Date(Date.now() - 12000 - state.kmoniRetry * 1000);
+      const layer = els.kmoniLayer.value;
+      const url = getKmoniImageUrl(date, layer);
+      if (!force && state.kmoniDate && Math.abs(date - state.kmoniDate) < 1500) {
+        state.kmoniLoading = false;
+        scheduleNextKmoniUpdate(1500);
+        return;
+      }
+      state.kmoniDate = date;
+      els.kmoniImage.onload = () => {
+        state.kmoniLoading = false;
+        state.kmoniRetry = 0;
+        state.lastKmoniOkDate = date;
+        els.kmoniSummary.textContent = layer === "jma_s" ? "リアルタイム震度" : "最大加速度";
+        els.kmoniTime.textContent = `強震モニタ ${formatKmoniTime(date)} / ${layer === "jma_s" ? "リアルタイム震度" : "最大加速度"}`;
+        detectKmoniColor(date);
+        scheduleNextKmoniUpdate(1800);
+      };
+      els.kmoniImage.onerror = () => {
+        state.kmoniLoading = false;
+        if (state.kmoniRetry < 10) {
+          state.kmoniRetry += 1;
+          scheduleNextKmoniUpdate(500, true);
+        } else {
+          els.kmoniSummary.textContent = "取得失敗";
+          els.kmoniTime.textContent = "強震モニタ画像を取得できませんでした。数秒後に再試行します。";
+          state.kmoniRetry = 0;
+          scheduleNextKmoniUpdate(5000);
+        }
+      };
+      els.kmoniImage.src = url;
+    }
+
+    function scheduleNextKmoniUpdate(delay, force = false) {
+      clearTimeout(state.kmoniNextTimer);
+      state.kmoniNextTimer = setTimeout(() => updateKmoniImage(force), delay);
+    }
+
+    function detectKmoniColor(date) {
+      if (state.kmoniChecking) return;
+      state.kmoniChecking = true;
+      try {
+        const canvas = document.createElement("canvas");
+        const img = els.kmoniImage;
+        canvas.width = img.naturalWidth || img.width;
+        canvas.height = img.naturalHeight || img.height;
+        if (!canvas.width || !canvas.height) return;
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const level = scanKmoniAlertColor(ctx.getImageData(0, 0, canvas.width, canvas.height).data);
+        if (level) handleKmoniColorDetection(level, date);
+        else if (els.kmoniSummary.textContent.includes("検知")) els.kmoniSummary.textContent = els.kmoniLayer.value === "jma_s" ? "リアルタイム震度" : "最大加速度";
+      } catch (error) {
+        els.kmoniTime.textContent = `${els.kmoniTime.textContent} / 色検知不可`;
+      } finally {
+        state.kmoniChecking = false;
+      }
+    }
+
+    function scanKmoniAlertColor(data) {
+      if (els.kmoniLayer.value !== "jma_s") return "";
+      const counts = { purple: 0, red: 0, orange: 0, yellow: 0 };
+      for (let i = 0; i < data.length; i += 16) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        const a = data[i + 3];
+        if (a < 180) continue;
+        if (r > 140 && b > 130 && g < 95) counts.purple += 1;
+        else if (r > 185 && g < 95 && b < 95) counts.red += 1;
+        else if (r > 210 && g >= 95 && g < 175 && b < 90) counts.orange += 1;
+        else if (r > 205 && g > 180 && b < 120) counts.yellow += 1;
+      }
+      const thresholds = { purple: 5, red: 6, orange: 8, yellow: 10 };
+      for (const color of ["purple", "red", "orange", "yellow"]) {
+        if (counts[color] >= thresholds[color]) return color;
+      }
+      return "";
+    }
+
+    function handleKmoniColorDetection(color, date) {
+      const now = Date.now();
+      if (state.kmoniLastAlert.level === color && now - state.kmoniLastAlert.time < 30000) {
+        els.kmoniSummary.textContent = `強震モニタ ${kmoniColorLabel(color)}検知`;
+        return;
+      }
+      state.kmoniLastAlert = { level: color, time: now };
+      const evt = {
+        id: `kmoni-${color}-${formatKmoniStamp(date)}`,
+        kind: "test",
+        title: `強震モニタ ${kmoniColorLabel(color)}検知`,
+        badge: "強震モニタ",
+        body: `${formatKmoniTime(date)} の強震モニタ画像で ${kmoniColorLabel(color)} 以上の反応を検知しました。`,
+        meta: formatKmoniTime(date),
+        raw: { kmoniDetection: true, color, time: formatKmoniStamp(date) }
+      };
+      els.kmoniSummary.textContent = evt.title;
+      pushEvent(evt, true);
+    }
+
+    function kmoniColorLabel(color) {
+      return { yellow: "黄色", orange: "橙色", red: "赤色", purple: "紫色" }[color] || color;
+    }
+
+    function getKmoniImageUrl(date, layer = "jma_s") {
+      const stamp = formatKmoniStamp(date);
+      const day = stamp.slice(0, 8);
+      const safeLayer = layer === "acmap_s" ? "acmap_s" : "jma_s";
+      return `http://www.kmoni.bosai.go.jp/data/map_img/RealTimeImg/${safeLayer}/${day}/${stamp}.${safeLayer}.gif`;
+    }
+
+    function formatKmoniStamp(date) {
+      const parts = new Intl.DateTimeFormat("ja-JP", {
+        timeZone: "Asia/Tokyo",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false
+      }).formatToParts(date).reduce((acc, part) => {
+        if (part.type !== "literal") acc[part.type] = part.value;
+        return acc;
+      }, {});
+      return `${parts.year}${parts.month}${parts.day}${parts.hour}${parts.minute}${parts.second}`;
+    }
+
+    function formatKmoniTime(date) {
+      const stamp = formatKmoniStamp(date);
+      return `${stamp.slice(0, 4)}/${stamp.slice(4, 6)}/${stamp.slice(6, 8)} ${stamp.slice(8, 10)}:${stamp.slice(10, 12)}:${stamp.slice(12, 14)}`;
+    }
+
+    async function createDiscordMapBlob(evt, accentColor) {
+      const mapData = extractMapData(evt);
+      if (!mapData.hasLocation && mapData.points.length === 0 && mapData.areas.length === 0) return null;
+
+      const canvas = document.createElement("canvas");
+      canvas.width = 960;
+      canvas.height = 620;
+      const ctx = canvas.getContext("2d");
+      const proj = createMapProjection(canvas.width, canvas.height, mapData);
+
+      drawMapBackground(ctx, canvas.width, canvas.height, proj);
+      await drawJapanSvgBaseMap(ctx, proj, () => drawJapanBaseMap(ctx, proj));
+      drawRemoteIslandLabels(ctx, proj);
+      drawReferenceLabels(ctx, proj);
+      if (mapData.hasLocation) drawEpicentralRings(ctx, proj, mapData);
+      drawTsunamiAreas(ctx, proj, mapData.areas);
+      drawObservationPoints(ctx, proj, mapData.points);
+      if (mapData.hasLocation) drawEpicenter(ctx, proj, mapData, accentColor);
+      drawObservationLabels(ctx, proj, mapData.points);
+      drawMapPanel(ctx, evt, mapData);
+      if (mapData.hasLocation) await drawLocalInset(ctx, mapData, accentColor);
+
+      return await new Promise((resolve) => canvas.toBlob(resolve, "image/png", 0.92));
+    }
+
+    function extractMapData(evt) {
+      const raw = evt.raw || {};
+      const hypo = raw.earthquake?.hypocenter || raw.hypocenter || {};
+      const lat = parseCoordinate(hypo.latitude ?? hypo.lat ?? raw.latitude ?? raw.lat, "lat");
+      const lon = parseCoordinate(hypo.longitude ?? hypo.lon ?? hypo.lng ?? raw.longitude ?? raw.lon ?? raw.lng, "lon");
+      return {
+        hasLocation: Number.isFinite(lat) && Number.isFinite(lon),
+        lat,
+        lon,
+        name: hypo.name || raw.hypocenterName || raw.name || "",
+        depth: hypo.depth,
+        magnitude: hypo.magnitude,
+        points: normalizeMapPoints(raw.points || raw.observationPoints || []),
+        areas: normalizeMapAreas(raw.areas || raw.forecastAreas || raw.warnAreas || [])
+      };
+    }
+
+    function normalizeMapPoints(points) {
+      if (!Array.isArray(points)) return [];
+      return points.map((point) => {
+        let lat = parseCoordinate(point.latitude ?? point.lat, "lat");
+        let lon = parseCoordinate(point.longitude ?? point.lon ?? point.lng, "lon");
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+          const center = findAreaCenter(point.addr || point.pref || point.name || point.area || "");
+          if (center) {
+            lat = center.lat;
+            lon = center.lon;
+          }
+        }
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+        return {
+          lat,
+          lon,
+          scale: Number(point.scale || point.maxScale || 0),
+          label: point.addr || point.pref || point.name || ""
+        };
+      }).filter(Boolean);
+    }
+
+    function normalizeMapAreas(areas) {
+      if (!Array.isArray(areas)) return [];
+      return areas.map((area) => {
+        const areaName = area.name || area.area || area.pref || "";
+        const lat = parseCoordinate(area.latitude ?? area.lat, "lat");
+        const lon = parseCoordinate(area.longitude ?? area.lon ?? area.lng, "lon");
+        const center = Number.isFinite(lat) && Number.isFinite(lon)
+          ? { lat, lon }
+          : tsunamiAreaCenters[areaName] || areaCenters[areaName] || findAreaCenter(areaName);
+        if (!center) return null;
+        return {
+          ...center,
+          grade: area.grade || area.kind || "Unknown",
+          name: areaName,
+          scale: Number(area.scaleTo || area.scaleFrom || area.scale || 0),
+          type: area.mapType || (area.scaleTo || area.scaleFrom ? "eew" : "")
+        };
+      }).filter(Boolean);
+    }
+
+    function parseCoordinate(value, axis) {
+      if (typeof value === "number") return value;
+      if (value === undefined || value === null) return NaN;
+      const text = String(value).trim();
+      const match = text.match(/-?\d+(?:\.\d+)?/);
+      if (!match) return NaN;
+      let n = Number(match[0]);
+      if (!Number.isFinite(n)) return NaN;
+      const lower = text.toLowerCase();
+      if (axis === "lat" && (text.includes("南緯") || lower.includes("s"))) n = -Math.abs(n);
+      if (axis === "lon" && (text.includes("西経") || lower.includes("w"))) n = -Math.abs(n);
+      return n;
+    }
+
+    function findAreaCenter(areaName) {
+      if (!areaName) return null;
+      const key = Object.keys(areaCenters).find((name) => {
+        const short = name.replace(/[都道府県]$/, "");
+        return areaName.includes(short) || areaName.includes(name) || name.includes(areaName.replace(/地方|北部|南部|東部|西部|中部|沿岸|沖|近海/g, ""));
+      });
+      return key ? areaCenters[key] : null;
+    }
+
+    function createMapProjection(width, height, mapData) {
+      const bounds = buildMapBounds(mapData, width, height);
+      const pad = { left: 64, right: 48, top: 34, bottom: 42 };
+      const usableWidth = width - pad.left - pad.right;
+      const usableHeight = height - pad.top - pad.bottom;
+      const project = (lat, lon) => {
+        const x = pad.left + ((lon - bounds.minLon) / (bounds.maxLon - bounds.minLon)) * usableWidth;
+        const y = pad.top + ((bounds.maxLat - lat) / (bounds.maxLat - bounds.minLat)) * usableHeight;
+        return { x, y };
+      };
+      project.bounds = bounds;
+      project.isVisible = (lat, lon, margin = 18) => {
+        const p = project(lat, lon);
+        return p.x >= -margin && p.x <= width + margin && p.y >= -margin && p.y <= height + margin;
+      };
+      return project;
+    }
+
+    function buildMapBounds(mapData, width, height) {
+      const base = { minLat: 23.0, maxLat: 46.5, minLon: 122.0, maxLon: 148.5 };
+      const coords = [];
+      if (mapData.hasLocation) coords.push({ lat: mapData.lat, lon: mapData.lon });
+      coords.push(...mapData.points, ...mapData.areas);
+
+      let bounds = { ...base };
+      for (const coord of coords) {
+        if (!Number.isFinite(coord.lat) || !Number.isFinite(coord.lon)) continue;
+        bounds.minLat = Math.min(bounds.minLat, coord.lat);
+        bounds.maxLat = Math.max(bounds.maxLat, coord.lat);
+        bounds.minLon = Math.min(bounds.minLon, coord.lon);
+        bounds.maxLon = Math.max(bounds.maxLon, coord.lon);
+      }
+
+      const far = bounds.minLat < base.minLat || bounds.maxLat > base.maxLat || bounds.minLon < base.minLon || bounds.maxLon > base.maxLon;
+      const padLat = far ? Math.max(2.5, (bounds.maxLat - bounds.minLat) * 0.14) : 0;
+      const padLon = far ? Math.max(3.0, (bounds.maxLon - bounds.minLon) * 0.14) : 0;
+      bounds.minLat -= padLat;
+      bounds.maxLat += padLat;
+      bounds.minLon -= padLon;
+      bounds.maxLon += padLon;
+
+      const plotAspect = (width - 112) / (height - 76);
+      const latSpan = Math.max(1, bounds.maxLat - bounds.minLat);
+      const lonSpan = Math.max(1, bounds.maxLon - bounds.minLon);
+      const currentAspect = lonSpan / latSpan;
+      if (currentAspect < plotAspect) {
+        const extra = (latSpan * plotAspect - lonSpan) / 2;
+        bounds.minLon -= extra;
+        bounds.maxLon += extra;
+      } else {
+        const extra = (lonSpan / plotAspect - latSpan) / 2;
+        bounds.minLat -= extra;
+        bounds.maxLat += extra;
+      }
+      return bounds;
+    }
+
+    function drawMapBackground(ctx, width, height, proj) {
+      const gradient = ctx.createLinearGradient(0, 0, width, height);
+      gradient.addColorStop(0, "#06111e");
+      gradient.addColorStop(.55, "#0c263a");
+      gradient.addColorStop(1, "#10364a");
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, width, height);
+
+      const seaGlow = ctx.createRadialGradient(width * .55, height * .36, 30, width * .55, height * .36, width * .72);
+      seaGlow.addColorStop(0, "rgba(82, 160, 190, .16)");
+      seaGlow.addColorStop(1, "rgba(82, 160, 190, 0)");
+      ctx.fillStyle = seaGlow;
+      ctx.fillRect(0, 0, width, height);
+
+      ctx.strokeStyle = "rgba(255,255,255,.08)";
+      ctx.lineWidth = 1;
+      const minLon = Math.floor(proj.bounds.minLon / 5) * 5;
+      const maxLon = Math.ceil(proj.bounds.maxLon / 5) * 5;
+      const minLat = Math.floor(proj.bounds.minLat / 5) * 5;
+      const maxLat = Math.ceil(proj.bounds.maxLat / 5) * 5;
+      for (let lon = minLon; lon <= maxLon; lon += 5) {
+        const a = proj(proj.bounds.minLat, lon);
+        const b = proj(proj.bounds.maxLat, lon);
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+      for (let lat = minLat; lat <= maxLat; lat += 5) {
+        const a = proj(lat, proj.bounds.minLon);
+        const b = proj(lat, proj.bounds.maxLon);
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+    }
+
+    async function drawJapanSvgBaseMap(ctx, proj, fallback) {
+      try {
+        const img = await loadJapanSvgMap();
+        const bounds = japanSvgMapBounds;
+        const topLeft = proj(bounds.maxLat, bounds.minLon);
+        const bottomRight = proj(bounds.minLat, bounds.maxLon);
+        const x = Math.min(topLeft.x, bottomRight.x);
+        const y = Math.min(topLeft.y, bottomRight.y);
+        const width = Math.abs(bottomRight.x - topLeft.x);
+        const height = Math.abs(bottomRight.y - topLeft.y);
+
+        ctx.save();
+        ctx.shadowColor = "rgba(0,0,0,.28)";
+        ctx.shadowBlur = 8;
+        ctx.globalAlpha = .88;
+        ctx.drawImage(img, x, y, width, height);
+        ctx.restore();
+      } catch (error) {
+        console.warn("Japan SVG map load failed, using fallback polygons", error);
+        fallback();
+      }
+    }
+
+    function loadJapanSvgMap() {
+      if (!state.japanSvgMapPromise) {
+        state.japanSvgMapPromise = new Promise((resolve, reject) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => resolve(img);
+          img.onerror = reject;
+          img.src = japanSvgMapUrl;
+        });
+      }
+      return state.japanSvgMapPromise;
+    }
+
+    function drawJapanBaseMap(ctx, proj) {
+      ctx.save();
+      ctx.shadowColor = "rgba(0,0,0,.42)";
+      ctx.shadowBlur = 10;
+      ctx.shadowOffsetY = 4;
+      for (const island of japanLandPolygons) {
+        drawLandPolygon(ctx, proj, island, "rgba(70, 105, 82, .96)", "rgba(221, 238, 223, .72)", 1.8);
+      }
+      ctx.restore();
+
+      ctx.save();
+      ctx.strokeStyle = "rgba(245, 250, 255, .14)";
+      ctx.lineWidth = 1;
+      for (const line of japanReliefLines) drawGeoLine(ctx, proj, line);
+      ctx.restore();
+    }
+
+    function drawLandPolygon(ctx, proj, polygon, fill, stroke, lineWidth) {
+      ctx.beginPath();
+      polygon.forEach(([lat, lon], i) => {
+        const p = proj(lat, lon);
+        if (i === 0) ctx.moveTo(p.x, p.y);
+        else ctx.lineTo(p.x, p.y);
+      });
+      ctx.closePath();
+      ctx.fillStyle = fill;
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = lineWidth;
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    function drawGeoLine(ctx, proj, line) {
+      ctx.beginPath();
+      line.forEach(([lat, lon], i) => {
+        const p = proj(lat, lon);
+        if (i === 0) ctx.moveTo(p.x, p.y);
+        else ctx.lineTo(p.x, p.y);
+      });
+      ctx.stroke();
+    }
+
+    function drawRemoteIslandLabels(ctx, proj) {
+      ctx.font = "12px system-ui, sans-serif";
+      for (const island of remoteIslandMarkers) {
+        if (proj.isVisible && !proj.isVisible(island.lat, island.lon, 60)) continue;
+        const p = proj(island.lat, island.lon);
+        ctx.fillStyle = "rgba(230, 242, 255, .86)";
+        ctx.strokeStyle = "rgba(9, 16, 28, .86)";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, island.r || 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = "rgba(236, 243, 251, .82)";
+        ctx.fillText(island.name, p.x + 7, p.y + 4);
+      }
+    }
+
+    function drawReferenceLabels(ctx, proj) {
+      ctx.font = "12px system-ui, sans-serif";
+      for (const city of referenceCities) {
+        if (proj.isVisible && !proj.isVisible(city.lat, city.lon, 40)) continue;
+        const p = proj(city.lat, city.lon);
+        ctx.fillStyle = "rgba(255,255,255,.62)";
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 2.4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "rgba(226,235,247,.78)";
+        ctx.fillText(city.name, p.x + 5, p.y + 4);
+      }
+    }
+
+    function drawEpicentralRings(ctx, proj, mapData) {
+      const center = proj(mapData.lat, mapData.lon);
+      const pLat = proj(mapData.lat + 1, mapData.lon);
+      const pLon = proj(mapData.lat, mapData.lon + 1);
+      const pxPerDegree = (Math.abs(center.y - pLat.y) + Math.abs(center.x - pLon.x)) / 2;
+      const pxPerKm = pxPerDegree / 111;
+
+      ctx.save();
+      ctx.setLineDash([8, 8]);
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = "rgba(255,255,255,.28)";
+      ctx.fillStyle = "rgba(255,255,255,.64)";
+      ctx.font = "12px system-ui, sans-serif";
+      for (const km of [100, 200, 300]) {
+        const r = km * pxPerKm;
+        if (r < 5 || r > 700) continue;
+        ctx.beginPath();
+        ctx.arc(center.x, center.y, r, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillText(`${km}km`, center.x + r + 5, center.y - 5);
+      }
+      ctx.restore();
+    }
+
+    function drawTsunamiAreas(ctx, proj, areas) {
+      for (const area of areas.slice(0, 18)) {
+        const p = proj(area.lat, area.lon);
+        const isEewArea = area.type === "eew";
+        const fill = area.scale ? seismicColor(area.scale) : tsunamiGradeColor(area.grade);
+        ctx.fillStyle = isEewArea ? hexToRgba(fill, .32) : fill;
+        ctx.strokeStyle = "rgba(255,255,255,.82)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, isEewArea ? 18 : 10, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        if (isEewArea) {
+          ctx.strokeStyle = fill;
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 28, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        if (area.name) {
+          ctx.fillStyle = "rgba(245,247,251,.9)";
+          ctx.font = "12px system-ui, sans-serif";
+          const label = isEewArea && area.scale ? `${area.name} ${scaleText(area.scale)}` : area.name;
+          ctx.fillText(truncateText(ctx, label, 110), p.x + (isEewArea ? 22 : 12), p.y + 4);
+        }
+      }
+    }
+
+    function hexToRgba(color, alpha) {
+      if (!/^#[0-9a-f]{6}$/i.test(color)) return color;
+      const r = parseInt(color.slice(1, 3), 16);
+      const g = parseInt(color.slice(3, 5), 16);
+      const b = parseInt(color.slice(5, 7), 16);
+      return `rgba(${r},${g},${b},${alpha})`;
+    }
+
+    function drawObservationPoints(ctx, proj, points) {
+      for (const point of points.slice(0, 80)) {
+        const p = proj(point.lat, point.lon);
+        const r = Math.max(4, Math.min(11, point.scale / 7));
+        ctx.fillStyle = seismicColor(point.scale);
+        ctx.strokeStyle = "rgba(9, 16, 28, .75)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
+
+    function drawObservationLabels(ctx, proj, points) {
+      const top = [...points].sort((a, b) => (b.scale || 0) - (a.scale || 0)).slice(0, 10);
+      ctx.font = "12px system-ui, sans-serif";
+      for (const point of top) {
+        const p = proj(point.lat, point.lon);
+        const label = `${point.label || ""} ${scaleText(point.scale)}`.trim();
+        if (!label) continue;
+        ctx.fillStyle = "rgba(5, 10, 19, .72)";
+        const width = Math.min(150, ctx.measureText(label).width + 12);
+        roundRect(ctx, p.x + 9, p.y - 16, width, 22, 6);
+        ctx.fill();
+        ctx.fillStyle = "#f5f7fb";
+        ctx.fillText(truncateText(ctx, label, 132), p.x + 15, p.y);
+      }
+    }
+
+    function drawEpicenter(ctx, proj, mapData, accentColor) {
+      const p = proj(mapData.lat, mapData.lon);
+      const color = "#" + accentColor.toString(16).padStart(6, "0");
+      ctx.strokeStyle = color;
+      ctx.fillStyle = "rgba(255,255,255,.96)";
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 18, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(p.x - 26, p.y);
+      ctx.lineTo(p.x + 26, p.y);
+      ctx.moveTo(p.x, p.y - 26);
+      ctx.lineTo(p.x, p.y + 26);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function drawMapPanel(ctx, evt, mapData) {
+      ctx.fillStyle = "rgba(5, 10, 19, .78)";
+      ctx.strokeStyle = "rgba(255,255,255,.16)";
+      ctx.lineWidth = 1;
+      roundRect(ctx, 28, 28, 470, 146, 14);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = "#f5f7fb";
+      ctx.font = "700 28px system-ui, sans-serif";
+      ctx.fillText(truncateText(ctx, evt.title, 430), 52, 72);
+
+      ctx.fillStyle = "#c8d3e8";
+      ctx.font = "18px system-ui, sans-serif";
+      const details = [
+        mapData.name ? `震央: ${mapData.name}` : "",
+        mapData.magnitude ? `M${mapData.magnitude}` : "",
+        mapData.depth !== undefined ? `深さ ${formatDepth(mapData.depth)}` : "",
+        evt.meta ? String(evt.meta) : ""
+      ].filter(Boolean).join(" / ");
+      ctx.fillText(truncateText(ctx, details || evt.badge || evt.kind, 420), 52, 108);
+
+      ctx.fillStyle = "#9fb0cb";
+      ctx.font = "16px system-ui, sans-serif";
+      ctx.fillText("Map: Wikimedia Commons SVG base / auto-scaled for distant epicenters", 52, 142);
+
+      drawLegend(ctx, 710, 470);
+    }
+
+    async function drawLocalInset(ctx, mapData, accentColor) {
+      const x = 632;
+      const y = 34;
+      const width = 300;
+      const height = 214;
+      const spanLat = 4.8;
+      const spanLon = 5.6;
+      const minLat = mapData.lat - spanLat / 2;
+      const maxLat = mapData.lat + spanLat / 2;
+      const minLon = mapData.lon - spanLon / 2;
+      const maxLon = mapData.lon + spanLon / 2;
+      const project = (lat, lon) => ({
+        x: x + ((lon - minLon) / (maxLon - minLon)) * width,
+        y: y + ((maxLat - lat) / (maxLat - minLat)) * height
+      });
+
+      ctx.fillStyle = "rgba(5, 10, 19, .78)";
+      ctx.strokeStyle = "rgba(255,255,255,.22)";
+      ctx.lineWidth = 1;
+      roundRect(ctx, x - 14, y - 14, width + 28, height + 44, 14);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x, y, width, height);
+      ctx.clip();
+      ctx.fillStyle = "rgba(35, 70, 95, .42)";
+      ctx.fillRect(x, y, width, height);
+      await drawJapanSvgBaseMap(ctx, project, () => drawJapanBaseMap(ctx, project));
+      drawRemoteIslandLabels(ctx, project);
+      drawReferenceLabels(ctx, project);
+      drawObservationPoints(ctx, project, mapData.points);
+      drawObservationLabels(ctx, project, mapData.points);
+      drawEpicenter(ctx, project, mapData, accentColor);
+      ctx.restore();
+
+      ctx.strokeStyle = "rgba(255,255,255,.32)";
+      ctx.strokeRect(x, y, width, height);
+      ctx.fillStyle = "#f5f7fb";
+      ctx.font = "700 14px system-ui, sans-serif";
+      ctx.fillText("震央周辺拡大", x, y + height + 24);
+      ctx.fillStyle = "#aebbd2";
+      ctx.font = "12px system-ui, sans-serif";
+      ctx.fillText(`${mapData.lat.toFixed(2)}N / ${mapData.lon.toFixed(2)}E`, x + 102, y + height + 24);
+    }
+
+    const japanSvgMapUrl = "https://upload.wikimedia.org/wikipedia/commons/6/6e/Japan_location_map.svg";
+    const japanSvgMapBounds = { minLat: 22.95, maxLat: 47.56, minLon: 121.96, maxLon: 151.58 };
+
+    function drawLegend(ctx, x, y) {
+      const entries = [
+        [10, "1"], [20, "2"], [30, "3"], [40, "4"],
+        [45, "5弱"], [50, "5強"], [55, "6弱"], [60, "6強"], [70, "7"]
+      ];
+      ctx.fillStyle = "rgba(5, 10, 19, .72)";
+      roundRect(ctx, x - 20, y - 34, 220, 112, 12);
+      ctx.fill();
+      ctx.font = "13px system-ui, sans-serif";
+      entries.forEach(([scale, label], index) => {
+        const px = x + (index % 5) * 40;
+        const py = y + Math.floor(index / 5) * 38;
+        ctx.fillStyle = seismicColor(scale);
+        ctx.beginPath();
+        ctx.arc(px, py, 8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#dce6f7";
+        ctx.fillText(label, px + 12, py + 5);
+      });
+    }
+
+    function roundRect(ctx, x, y, width, height, radius) {
+      ctx.beginPath();
+      ctx.moveTo(x + radius, y);
+      ctx.arcTo(x + width, y, x + width, y + height, radius);
+      ctx.arcTo(x + width, y + height, x, y + height, radius);
+      ctx.arcTo(x, y + height, x, y, radius);
+      ctx.arcTo(x, y, x + width, y, radius);
+      ctx.closePath();
+    }
+
+    function truncateText(ctx, text, maxWidth) {
+      const value = String(text || "");
+      if (ctx.measureText(value).width <= maxWidth) return value;
+      let trimmed = value;
+      while (trimmed.length > 1 && ctx.measureText(trimmed + "...").width > maxWidth) trimmed = trimmed.slice(0, -1);
+      return trimmed + "...";
+    }
+
+    function seismicColor(scale) {
+      const n = Number(scale);
+      if (n >= 70) return "#b40068";
+      if (n >= 60) return "#c72f2f";
+      if (n >= 55) return "#e85d2a";
+      if (n >= 50) return "#ff8c1a";
+      if (n >= 45) return "#ffc400";
+      if (n >= 40) return "#f2df64";
+      if (n >= 30) return "#63c660";
+      if (n >= 20) return "#4eb3d3";
+      return "#9cc9ff";
+    }
+
+    function tsunamiGradeColor(grade) {
+      return {
+        MajorWarning: "#b40068",
+        Warning: "#d64545",
+        Watch: "#f4c542",
+        Yoho: "#5fb0ff"
+      }[grade] || "#b8c2d8";
+    }
+
+    const japanLandPolygons = [
+      [[45.54,141.94],[45.38,142.72],[45.18,143.65],[44.72,145.17],[43.98,145.82],[43.34,145.78],[42.92,145.33],[42.52,144.62],[42.05,143.38],[41.65,142.36],[41.38,141.28],[41.48,140.55],[42.02,140.15],[42.74,140.22],[43.32,140.54],[43.86,141.05],[44.43,141.35],[45.08,141.50]],
+      [[41.55,140.90],[41.23,141.34],[40.82,141.58],[40.25,141.76],[39.58,142.07],[38.84,141.98],[38.27,141.55],[37.82,141.08],[37.23,140.98],[36.58,140.82],[35.92,140.72],[35.45,140.42],[35.14,139.83],[35.05,139.23],[35.20,138.72],[34.97,138.18],[34.75,137.39],[34.73,136.83],[35.02,136.14],[35.36,135.44],[35.55,134.80],[35.50,134.18],[35.12,133.56],[34.72,132.82],[34.33,132.12],[34.18,131.43],[34.42,130.92],[34.02,130.88],[33.55,131.08],[33.34,131.66],[33.55,132.28],[33.93,132.77],[34.10,133.50],[34.24,134.19],[34.38,134.83],[34.32,135.18],[34.62,135.56],[34.48,136.15],[33.88,136.92],[34.10,137.62],[34.55,138.18],[34.62,138.88],[34.95,139.61],[35.70,140.05],[36.52,140.38],[37.22,140.52],[37.82,140.74],[38.38,140.93],[39.12,140.93],[39.78,140.74],[40.36,140.56],[40.92,140.38]],
+      [[37.86,138.86],[37.98,139.48],[37.72,139.63],[37.40,139.35],[37.48,138.92]],
+      [[35.21,136.88],[34.92,137.34],[34.50,137.16],[34.42,136.52],[34.58,135.86],[34.93,135.45],[35.25,135.86]],
+      [[34.92,134.86],[34.51,135.25],[34.10,134.78],[33.72,134.24],[33.70,133.63],[34.04,133.12],[34.46,133.34],[34.64,134.02]],
+      [[34.37,132.46],[34.04,133.08],[33.54,132.96],[33.18,132.38],[33.25,131.77],[33.82,131.54],[34.18,131.94]],
+      [[34.68,130.86],[34.28,131.18],[33.78,131.06],[33.42,130.70],[32.86,130.72],[32.45,130.48],[31.88,130.78],[31.26,130.56],[30.98,130.02],[31.34,129.48],[31.94,129.40],[32.58,129.62],[33.16,129.84],[33.78,130.14],[34.28,130.36]],
+      [[30.93,130.99],[30.47,131.02],[30.21,130.58],[30.42,130.18],[30.84,130.34]],
+      [[29.55,129.70],[29.33,129.88],[29.15,129.68],[29.30,129.46]],
+      [[28.60,129.58],[28.23,129.72],[27.92,129.35],[28.15,128.92],[28.52,129.10]],
+      [[27.17,142.22],[27.04,142.32],[26.92,142.15],[27.03,141.96]],
+      [[26.88,128.18],[26.50,128.34],[26.10,128.15],[26.02,127.72],[26.30,127.44],[26.68,127.62]],
+      [[24.92,125.30],[24.62,125.48],[24.34,125.25],[24.24,124.88],[24.50,124.70],[24.82,124.92]]
+    ];
+
+    const japanReliefLines = [
+      [[44.7,142.0],[43.7,142.1],[42.7,142.0]],
+      [[40.9,140.7],[39.8,140.8],[38.7,140.5],[37.6,140.2],[36.5,139.6],[35.7,138.8]],
+      [[37.6,138.8],[36.9,138.2],[36.1,137.6],[35.4,136.8]],
+      [[35.2,135.7],[34.7,135.0],[34.2,134.3],[33.8,133.5]],
+      [[33.8,132.5],[33.3,131.8],[32.6,131.0],[31.8,130.5]]
+    ];
+
+    const remoteIslandMarkers = [
+      { name: "伊豆大島", lat: 34.75, lon: 139.39, r: 3 },
+      { name: "三宅島", lat: 34.08, lon: 139.53, r: 3 },
+      { name: "八丈島", lat: 33.10, lon: 139.79, r: 3 },
+      { name: "鳥島", lat: 30.48, lon: 140.31, r: 3.5 },
+      { name: "父島", lat: 27.09, lon: 142.19, r: 3.5 },
+      { name: "硫黄島", lat: 24.78, lon: 141.32, r: 3 },
+      { name: "南鳥島", lat: 24.29, lon: 153.98, r: 3.5 }
+    ];
+
+    const referenceCities = [
+      { name: "札幌", lat: 43.0618, lon: 141.3545 },
+      { name: "青森", lat: 40.8244, lon: 140.7400 },
+      { name: "仙台", lat: 38.2682, lon: 140.8694 },
+      { name: "新潟", lat: 37.9161, lon: 139.0364 },
+      { name: "東京", lat: 35.6812, lon: 139.7671 },
+      { name: "名古屋", lat: 35.1815, lon: 136.9066 },
+      { name: "大阪", lat: 34.6937, lon: 135.5023 },
+      { name: "広島", lat: 34.3853, lon: 132.4553 },
+      { name: "高知", lat: 33.5597, lon: 133.5311 },
+      { name: "福岡", lat: 33.5902, lon: 130.4017 },
+      { name: "鹿児島", lat: 31.5966, lon: 130.5571 },
+      { name: "那覇", lat: 26.2124, lon: 127.6792 }
+    ];
+
+    const areaCenters = {
+      "北海道": { lat: 43.1, lon: 141.3 },
+      "青森県": { lat: 40.8, lon: 140.7 },
+      "岩手県": { lat: 39.7, lon: 141.2 },
+      "宮城県": { lat: 38.3, lon: 140.9 },
+      "秋田県": { lat: 39.7, lon: 140.1 },
+      "山形県": { lat: 38.2, lon: 140.4 },
+      "福島県": { lat: 37.8, lon: 140.5 },
+      "茨城県": { lat: 36.3, lon: 140.4 },
+      "栃木県": { lat: 36.6, lon: 139.9 },
+      "群馬県": { lat: 36.4, lon: 139.1 },
+      "埼玉県": { lat: 35.9, lon: 139.6 },
+      "千葉県": { lat: 35.6, lon: 140.1 },
+      "東京都": { lat: 35.7, lon: 139.8 },
+      "神奈川県": { lat: 35.4, lon: 139.6 },
+      "新潟県": { lat: 37.9, lon: 139.0 },
+      "富山県": { lat: 36.7, lon: 137.2 },
+      "石川県": { lat: 36.6, lon: 136.7 },
+      "福井県": { lat: 36.1, lon: 136.2 },
+      "山梨県": { lat: 35.7, lon: 138.6 },
+      "長野県": { lat: 36.7, lon: 138.2 },
+      "岐阜県": { lat: 35.4, lon: 136.8 },
+      "静岡県": { lat: 34.9, lon: 138.4 },
+      "愛知県": { lat: 35.2, lon: 136.9 },
+      "三重県": { lat: 34.7, lon: 136.5 },
+      "滋賀県": { lat: 35.0, lon: 135.9 },
+      "京都府": { lat: 35.0, lon: 135.8 },
+      "大阪府": { lat: 34.7, lon: 135.5 },
+      "兵庫県": { lat: 34.7, lon: 135.2 },
+      "奈良県": { lat: 34.7, lon: 135.8 },
+      "和歌山県": { lat: 34.2, lon: 135.2 },
+      "鳥取県": { lat: 35.5, lon: 134.2 },
+      "島根県": { lat: 35.5, lon: 133.1 },
+      "岡山県": { lat: 34.7, lon: 133.9 },
+      "広島県": { lat: 34.4, lon: 132.5 },
+      "山口県": { lat: 34.2, lon: 131.5 },
+      "徳島県": { lat: 34.1, lon: 134.6 },
+      "香川県": { lat: 34.3, lon: 134.0 },
+      "愛媛県": { lat: 33.8, lon: 132.8 },
+      "高知県": { lat: 33.6, lon: 133.5 },
+      "福岡県": { lat: 33.6, lon: 130.4 },
+      "佐賀県": { lat: 33.3, lon: 130.3 },
+      "長崎県": { lat: 32.8, lon: 129.9 },
+      "熊本県": { lat: 32.8, lon: 130.7 },
+      "大分県": { lat: 33.2, lon: 131.6 },
+      "宮崎県": { lat: 31.9, lon: 131.4 },
+      "鹿児島県": { lat: 31.6, lon: 130.6 },
+      "沖縄県": { lat: 26.2, lon: 127.7 }
+    };
+
+    const tsunamiAreaCenters = {
+      "北海道太平洋沿岸東部": { lat: 43.0, lon: 145.0 },
+      "北海道太平洋沿岸中部": { lat: 42.4, lon: 143.3 },
+      "北海道太平洋沿岸西部": { lat: 42.0, lon: 141.0 },
+      "北海道日本海沿岸北部": { lat: 44.8, lon: 141.8 },
+      "北海道日本海沿岸南部": { lat: 43.0, lon: 140.2 },
+      "オホーツク海沿岸": { lat: 44.3, lon: 144.2 },
+      "青森県日本海沿岸": { lat: 40.8, lon: 140.0 },
+      "青森県太平洋沿岸": { lat: 40.7, lon: 141.6 },
+      "陸奥湾": { lat: 41.0, lon: 140.9 },
+      "岩手県": { lat: 39.5, lon: 142.0 },
+      "宮城県": { lat: 38.4, lon: 141.5 },
+      "福島県": { lat: 37.4, lon: 141.2 },
+      "茨城県": { lat: 36.4, lon: 140.8 },
+      "千葉県九十九里・外房": { lat: 35.3, lon: 140.4 },
+      "千葉県内房": { lat: 35.2, lon: 139.9 },
+      "東京湾内湾": { lat: 35.5, lon: 139.8 },
+      "伊豆諸島": { lat: 34.2, lon: 139.2 },
+      "小笠原諸島": { lat: 27.1, lon: 142.2 },
+      "相模湾・三浦半島": { lat: 35.2, lon: 139.4 },
+      "静岡県": { lat: 34.7, lon: 138.4 },
+      "愛知県外海": { lat: 34.6, lon: 137.1 },
+      "伊勢・三河湾": { lat: 34.7, lon: 136.9 },
+      "三重県南部": { lat: 33.9, lon: 136.5 },
+      "和歌山県": { lat: 33.7, lon: 135.4 },
+      "大阪府": { lat: 34.5, lon: 135.2 },
+      "兵庫県瀬戸内海沿岸": { lat: 34.5, lon: 134.7 },
+      "兵庫県日本海沿岸": { lat: 35.6, lon: 134.7 },
+      "岡山県": { lat: 34.5, lon: 133.9 },
+      "広島県": { lat: 34.2, lon: 132.6 },
+      "徳島県": { lat: 33.8, lon: 134.6 },
+      "香川県": { lat: 34.3, lon: 134.0 },
+      "愛媛県宇和海沿岸": { lat: 33.2, lon: 132.4 },
+      "高知県": { lat: 33.2, lon: 133.5 },
+      "山口県瀬戸内海沿岸": { lat: 34.0, lon: 131.8 },
+      "山口県日本海沿岸": { lat: 34.5, lon: 131.0 },
+      "福岡県瀬戸内海沿岸": { lat: 33.8, lon: 131.0 },
+      "福岡県日本海沿岸": { lat: 33.8, lon: 130.3 },
+      "佐賀県北部": { lat: 33.5, lon: 129.9 },
+      "長崎県西方": { lat: 32.8, lon: 129.6 },
+      "熊本県天草灘沿岸": { lat: 32.3, lon: 130.1 },
+      "大分県瀬戸内海沿岸": { lat: 33.3, lon: 131.7 },
+      "大分県豊後水道沿岸": { lat: 33.0, lon: 132.0 },
+      "宮崎県": { lat: 32.0, lon: 131.5 },
+      "鹿児島県東部": { lat: 31.4, lon: 131.0 },
+      "鹿児島県西部": { lat: 31.5, lon: 130.2 },
+      "種子島・屋久島地方": { lat: 30.5, lon: 130.8 },
+      "奄美群島・トカラ列島": { lat: 28.2, lon: 129.4 },
+      "沖縄本島地方": { lat: 26.4, lon: 127.9 },
+      "大東島地方": { lat: 25.8, lon: 131.2 },
+      "宮古島・八重山地方": { lat: 24.5, lon: 124.8 }
+    };
+
+    function addLocalNotice(title, body) {
+      const evt = {
+        id: "local-" + Date.now(),
+        kind: "test",
+        title,
+        badge: "ERROR",
+        body,
+        meta: new Date().toLocaleString("ja-JP"),
+        raw: { localNotice: true, body }
+      };
+      pushEvent(evt, false);
+    }
+
+    function beep(evt) {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+      const ctx = new AudioContext();
+      const pattern = soundPatternForEvent(evt);
+      pattern.forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.frequency.value = freq;
+        osc.type = "sine";
+        gain.gain.setValueAtTime(0.0001, ctx.currentTime + i * .18);
+        gain.gain.exponentialRampToValueAtTime(0.18, ctx.currentTime + i * .18 + .02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + i * .18 + .14);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(ctx.currentTime + i * .18);
+        osc.stop(ctx.currentTime + i * .18 + .16);
+      });
+      setTimeout(() => ctx.close(), pattern.length * 220 + 500);
+    }
+
+    function soundPatternForEvent(evt) {
+      if (evt.kind === "eew") {
+        if (evt.eewLevel === "warning") return [1040, 1040, 1040, 740, 740, 740];
+        if (evt.eewLevel === "forecast") return [880, 1040, 880, 1040];
+        return [760, 760, 620];
+      }
+      if (evt.kind === "tsunami") {
+        if (isTsunamiWarningOrWatch(evt.tsunamiGrade)) return [520, 740, 920, 920, 740, 520];
+        return [420, 560, 700];
+      }
+      if (evt.raw?.kmoniDetection) return [700, 900, 1100];
+      return [660, 520];
+    }
+
+    function isTsunamiWarningOrWatch(grade) {
+      return ["MajorWarning", "Warning", "Watch", "大津波警報", "津波警報", "津波注意報", "警報", "注意報"].includes(grade);
+    }
+
+    function rememberId(id) {
+      state.seen.add(id);
+      const list = [...state.seen].slice(-state.maxSeen);
+      state.seen = new Set(list);
+      localStorage.setItem("eq_seen_ids", JSON.stringify(list));
+    }
+
+    function formatDepth(depth) {
+      if (depth === undefined || depth === null || depth === -1) return "不明";
+      if (Number(depth) === 0) return "ごく浅い";
+      return `${depth}km`;
+    }
+
+    function scaleText(scale) {
+      const n = Number(scale);
+      if (!Number.isFinite(n) || n < 0) return "不明";
+      const map = {
+        10: "1", 20: "2", 30: "3", 40: "4",
+        45: "5弱", 50: "5強", 55: "6弱", 60: "6強", 70: "7"
+      };
+      return map[Math.round(n)] || String(scale);
+    }
+
+    function topPoints(points = []) {
+      if (!Array.isArray(points) || points.length === 0) return "";
+      const top = [...points].sort((a, b) => (b.scale || 0) - (a.scale || 0)).slice(0, 8);
+      return "観測: " + top.map(p => `${p.addr || p.pref || "不明"} 震度${scaleText(p.scale)}`).join("、");
+    }
+
+    function strongestTsunamiGrade(areas = []) {
+      const order = ["MajorWarning", "Warning", "Watch", "Yoho", "Unknown"];
+      for (const grade of order) if (areas.some(a => a.grade === grade)) return grade;
+      return areas[0]?.grade || "Unknown";
+    }
+
+    function gradeLabel(grade) {
+      return {
+        MajorWarning: "大津波警報",
+        Warning: "津波警報",
+        Watch: "津波注意報",
+        Yoho: "津波予報",
+        Unknown: "不明"
+      }[grade] || grade || "不明";
+    }
+  </script>
+</body>
+</html>

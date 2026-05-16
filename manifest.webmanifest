@@ -1,0 +1,26 @@
+{
+  "name": "地震・EEW・津波通知",
+  "short_name": "EEW Notify",
+  "description": "地震、緊急地震速報、津波、強震モニタを確認する通知アプリです。",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0b1020",
+  "theme_color": "#0b1020",
+  "lang": "ja",
+  "orientation": "landscape",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='42' fill='%230b1020'/%3E%3Cpath d='M30 125h28l16-52 26 80 22-104 18 76h22' fill='none' stroke='%237aa2ff' stroke-width='12' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='96' cy='96' r='66' fill='none' stroke='%23f2cc60' stroke-width='10' opacity='.85'/%3E%3Ccircle cx='96' cy='96' r='12' fill='%23ff6b6b'/%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='112' fill='%230b1020'/%3E%3Cpath d='M80 330h74l42-138 70 212 58-276 48 202h60' fill='none' stroke='%237aa2ff' stroke-width='32' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='256' cy='256' r='176' fill='none' stroke='%23f2cc60' stroke-width='28' opacity='.85'/%3E%3Ccircle cx='256' cy='256' r='34' fill='%23ff6b6b'/%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
