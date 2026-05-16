@@ -11,6 +11,8 @@
 - 地震・EEW・津波・強震モニタ検知のブラウザ通知
 - Discord Webhook通知
 - Discord通知への地図画像添付
+- 最新地震情報への震度地図表示
+- OBSなどの配信用にURLやWebhook設定を隠す配信モード
 - PWA対応
 
 ## 使い方
@@ -35,6 +37,10 @@ http://localhost:8000/
 右側のDiscord Webhook欄にWebhook URLを入力し、`Discordにも送信する` を有効にすると通知が送信されます。
 
 Webhook URLはパスワードに近い扱いです。公開リポジトリへ実際のWebhook URLを入れたまま保存しないでください。
+
+## 配信モード
+
+`配信モード（URL等を隠す）` を有効にすると、OBSなどで画面を配信する時にデータソース設定やDiscord Webhook設定を隠します。
 
 ## データソース
 

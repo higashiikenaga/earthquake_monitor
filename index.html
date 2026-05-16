@@ -264,6 +264,32 @@
     .kmoniToolbar select { max-width: 190px; }
     .kmoniToolbar button { max-width: 120px; padding: 10px 12px; }
 
+    .quakeMapFrame {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(0,0,0,.22);
+      display: block;
+      margin: 8px 0 10px;
+    }
+
+    body.stream-mode input[type="url"],
+    body.stream-mode #discordWebhookUrl,
+    body.stream-mode #wsUrl,
+    body.stream-mode #eewWsUrl {
+      filter: blur(7px);
+    }
+
+    body.stream-mode main > section:nth-of-type(3),
+    body.stream-mode main > section:nth-of-type(4) {
+      display: none;
+    }
+
+    body.stream-mode {
+      --shadow: none;
+    }
+
     .event {
       border: 1px solid var(--line);
       border-left: 6px solid var(--accent);
@@ -430,6 +456,7 @@
           <label class="toggle"><input type="checkbox" id="sound" checked /> 通知音を鳴らす</label>
           <label class="toggle"><input type="checkbox" id="dedupe" checked /> 同じIDの重複通知を抑止</label>
           <label class="toggle"><input type="checkbox" id="autoReconnect" checked /> 切断時に自動再接続</label>
+          <label class="toggle"><input type="checkbox" id="streamMode" /> 配信モード（URL等を隠す）</label>
         </div>
       </aside>
     </section>
@@ -453,6 +480,7 @@
             </div>
           </div>
           <h2>最新の地震情報</h2>
+          <canvas id="latestQuakeMap" class="quakeMapFrame" width="960" height="540"></canvas>
           <div id="latestDetail" class="latestDetail">まだ地震情報を受信していません。</div>
         </div>
         <div class="dashPanel">
@@ -564,13 +592,13 @@
     const els = {
       wsDot: $("wsDot"), wsStatus: $("wsStatus"), notifyStatus: $("notifyStatus"), count: $("count"), lastSeen: $("lastSeen"),
       connectBtn: $("connectBtn"), notifyBtn: $("notifyBtn"), testBtn: $("testBtn"), disconnectBtn: $("disconnectBtn"), feed: $("feed"),
-      eewSummary: $("eewSummary"), latestQuakeSummary: $("latestQuakeSummary"), kmoniSummary: $("kmoniSummary"), latestDetail: $("latestDetail"), quakeHistory: $("quakeHistory"), eewDetail: $("eewDetail"),
+      eewSummary: $("eewSummary"), latestQuakeSummary: $("latestQuakeSummary"), kmoniSummary: $("kmoniSummary"), latestDetail: $("latestDetail"), latestQuakeMap: $("latestQuakeMap"), quakeHistory: $("quakeHistory"), eewDetail: $("eewDetail"),
       kmoniLayer: $("kmoniLayer"), kmoniRefreshBtn: $("kmoniRefreshBtn"), kmoniImage: $("kmoniImage"), kmoniTime: $("kmoniTime"),
-      minScale: $("minScale"), tsunamiMode: $("tsunamiMode"), eewMode: $("eewMode"), sound: $("sound"), dedupe: $("dedupe"), autoReconnect: $("autoReconnect"), wsUrl: $("wsUrl"), eewWsUrl: $("eewWsUrl"),
+      minScale: $("minScale"), tsunamiMode: $("tsunamiMode"), eewMode: $("eewMode"), sound: $("sound"), dedupe: $("dedupe"), autoReconnect: $("autoReconnect"), streamMode: $("streamMode"), wsUrl: $("wsUrl"), eewWsUrl: $("eewWsUrl"),
       discordWebhookUrl: $("discordWebhookUrl"), discordEnabled: $("discordEnabled"), discordMention: $("discordMention"), discordMapEnabled: $("discordMapEnabled"), discordTestBtn: $("discordTestBtn"), clearWebhookBtn: $("clearWebhookBtn")
     };
 
-    const settingsKeys = ["minScale", "tsunamiMode", "eewMode", "sound", "dedupe", "autoReconnect", "wsUrl", "eewWsUrl", "kmoniLayer", "discordWebhookUrl", "discordEnabled", "discordMention", "discordMapEnabled"];
+    const settingsKeys = ["minScale", "tsunamiMode", "eewMode", "sound", "dedupe", "autoReconnect", "streamMode", "wsUrl", "eewWsUrl", "kmoniLayer", "discordWebhookUrl", "discordEnabled", "discordMention", "discordMapEnabled"];
     for (const key of settingsKeys) {
       const saved = localStorage.getItem("eq_" + key);
       if (saved !== null) {
@@ -579,10 +607,12 @@
       }
       els[key].addEventListener("change", () => {
         localStorage.setItem("eq_" + key, els[key].type === "checkbox" ? String(els[key].checked) : els[key].value);
+        if (key === "streamMode") applyStreamMode();
       });
     }
 
     updateNotificationStatus();
+    applyStreamMode();
     updateDashboard();
     loadInitialQuakeHistory();
     updateKmoniImage(true);
@@ -664,6 +694,10 @@
     function setWsStatus(type, text) {
       els.wsDot.className = "dot " + (type || "");
       els.wsStatus.textContent = text;
+    }
+
+    function applyStreamMode() {
+      document.body.classList.toggle("stream-mode", Boolean(els.streamMode?.checked));
     }
 
     function connect() {
@@ -1125,6 +1159,7 @@
       els.eewDetail.textContent = state.lastEew ? formatDashboardDetail(state.lastEew) : "緊急地震速報は受信していません。";
       els.latestQuakeSummary.textContent = state.latestQuake ? `${state.latestQuake.badge || "地震"} / ${state.latestQuake.meta || "時刻不明"}` : "受信なし";
       els.latestDetail.textContent = state.latestQuake ? formatDashboardDetail(state.latestQuake) : "まだ地震情報を受信していません。";
+      drawLatestQuakeMap(state.latestQuake);
 
       const history = state.events.filter((evt) => evt.kind === "quake").slice(0, 10);
       els.quakeHistory.innerHTML = "";
@@ -1169,6 +1204,76 @@
         evt.badge ? `種別: ${evt.badge}` : "",
         evt.body
       ].filter(Boolean).join("\n");
+    }
+
+    async function drawLatestQuakeMap(evt) {
+      const canvas = els.latestQuakeMap;
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (!evt) {
+        drawMapBackground(ctx, canvas.width, canvas.height, createMapProjection(canvas.width, canvas.height, { hasLocation: false, points: [], areas: [] }));
+        ctx.fillStyle = "#c8d3e8";
+        ctx.font = "700 24px system-ui, sans-serif";
+        ctx.fillText("地震情報を待機中", 32, 58);
+        return;
+      }
+
+      const mapData = extractMapData(evt);
+      const proj = createMapProjection(canvas.width, canvas.height, mapData);
+      drawMapBackground(ctx, canvas.width, canvas.height, proj);
+      await drawJapanSvgBaseMap(ctx, proj, () => drawJapanBaseMap(ctx, proj));
+      drawReferenceLabels(ctx, proj);
+      drawObservationPoints(ctx, proj, mapData.points);
+      if (mapData.hasLocation) drawEpicentralRings(ctx, proj, mapData);
+      if (mapData.hasLocation) drawEpicenter(ctx, proj, mapData, 0xf2cc60);
+      drawObservationLabels(ctx, proj, mapData.points);
+      drawNhkStyleQuakePanel(ctx, evt, mapData);
+    }
+
+    function drawNhkStyleQuakePanel(ctx, evt, mapData) {
+      const panelWidth = 430;
+      const panelHeight = 86;
+      const x = 18;
+      const y = 18;
+      ctx.fillStyle = "rgba(2, 10, 24, .88)";
+      ctx.strokeStyle = "rgba(255,255,255,.32)";
+      ctx.lineWidth = 1;
+      roundRect(ctx, x, y, panelWidth, panelHeight, 8);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = "#f5f7fb";
+      ctx.font = "800 22px system-ui, sans-serif";
+      ctx.fillText("地震発生時", x + 18, y + 32);
+
+      const magnitude = mapData.magnitude ? `M${mapData.magnitude}` : "M不明";
+      const depth = mapData.depth !== undefined ? formatDepth(mapData.depth) : "深さ不明";
+      const rows = [
+        ["マグニチュード", magnitude],
+        ["深さ", depth]
+      ];
+      ctx.font = "700 16px system-ui, sans-serif";
+      rows.forEach(([label, value], i) => {
+        const bx = x + 18 + i * 190;
+        const by = y + 58;
+        ctx.fillStyle = "#9fb0cb";
+        ctx.fillText(label, bx, by);
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "800 20px system-ui, sans-serif";
+        ctx.fillText(value, bx + 92, by + 1);
+        ctx.font = "700 16px system-ui, sans-serif";
+      });
+
+      if (evt.scale) {
+        ctx.fillStyle = seismicColor(evt.scale);
+        ctx.beginPath();
+        ctx.arc(x + panelWidth - 42, y + 43, 22, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#071025";
+        ctx.font = "900 16px system-ui, sans-serif";
+        ctx.fillText(scaleText(evt.scale), x + panelWidth - 52, y + 49);
+      }
     }
 
     async function sendDiscordWebhook(evt) {
