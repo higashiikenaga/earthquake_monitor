@@ -1747,15 +1747,16 @@
 
     function normalizeMapPoints(points) {
       if (!Array.isArray(points)) return [];
-      const mapped = points.map((point) => {
+      const mapped = points.map((point, index) => {
         const jmaRegion = findPointJmaRegion(point);
         let lat = parseCoordinate(point.latitude ?? point.lat, "lat");
         let lon = parseCoordinate(point.longitude ?? point.lon ?? point.lng, "lon");
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
           const center = jmaRegion || findPointAreaCenter(point);
           if (center) {
-            lat = center.lat;
-            lon = center.lon;
+            const offset = deterministicPointOffset(point, index);
+            lat = center.lat + offset.lat;
+            lon = center.lon + offset.lon;
           }
         }
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
@@ -1765,46 +1766,24 @@
           scale: Number(point.scale || point.maxScale || 0),
           label: point.addr || point.pref || point.name || "",
           pref: point.pref || "",
-          area: point.area || point.name || point.addr || "",
-          regionKey: jmaRegion ? `${jmaRegion.pref}:${jmaRegion.name}` : ""
+          area: point.area || point.name || point.addr || ""
         };
       }).filter(Boolean);
-      return aggregateObservationRegions(mapped);
+      return dedupeObservationPoints(mapped);
     }
 
-    function aggregateObservationRegions(points) {
+    function dedupeObservationPoints(points) {
       const groups = new Map();
       for (const point of points) {
-        const key = observationRegionKey(point);
-        const regionName = key.split(":").slice(1).join(":") || key;
-        const region = jmaSeismicRegions.find((item) => `${item.pref}:${item.name}` === key || item.name === regionName);
+        const key = [
+          Math.round(point.lat * 100),
+          Math.round(point.lon * 100),
+          point.label || point.area || point.pref || ""
+        ].join(":");
         const current = groups.get(key);
-        if (!current) {
-          groups.set(key, {
-            ...point,
-            lat: region?.lat ?? point.lat,
-            lon: region?.lon ?? point.lon,
-            label: "",
-            count: 1
-          });
-          continue;
-        }
-        current.count += 1;
-        if (Number(point.scale || 0) > Number(current.scale || 0)) {
-          current.scale = point.scale;
-        }
+        if (!current || Number(point.scale || 0) > Number(current.scale || 0)) groups.set(key, point);
       }
       return [...groups.values()].filter((point) => Number(point.scale || 0) > 0);
-    }
-
-    function observationRegionKey(point) {
-      if (point.regionKey) return point.regionKey;
-      const source = normalizeObservationLabel([point.pref, point.area, point.label].filter(Boolean).join(""));
-      const pref = String(point.pref || extractPrefectureName(source) || "地域").trim();
-      const explicit = findExplicitJmaRegion(source, pref);
-      if (explicit) return `${explicit.pref}:${explicit.name}`;
-      const nearest = findNearestJmaRegion(point, pref);
-      return nearest ? `${nearest.pref}:${nearest.name}` : pref;
     }
 
     function findPointJmaRegion(point) {
@@ -1816,6 +1795,18 @@
       if (!municipality) return null;
       const regionName = municipalityJmaRegions[municipality];
       return jmaSeismicRegions.find((region) => region.name === regionName || `${region.pref}:${region.name}` === regionName) || null;
+    }
+
+    function deterministicPointOffset(point, index) {
+      const seed = String(point.addr || point.name || point.area || point.pref || index);
+      let hash = 0;
+      for (let i = 0; i < seed.length; i += 1) hash = ((hash << 5) - hash + seed.charCodeAt(i)) | 0;
+      const angle = ((Math.abs(hash) % 360) / 180) * Math.PI;
+      const radius = 0.05 + ((Math.abs(hash >> 8) % 10) / 100);
+      return {
+        lat: Math.sin(angle) * radius,
+        lon: Math.cos(angle) * radius
+      };
     }
 
     function extractPrefectureName(value) {
