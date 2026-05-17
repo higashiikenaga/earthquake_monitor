@@ -589,6 +589,8 @@
       connectionGeneration: 0,
       events: [],
       lastEew: null,
+      activeEewDisplay: null,
+      eewDisplayTimer: null,
       latestQuake: null,
       kmoniTimer: null,
       kmoniRetry: 0,
@@ -1251,17 +1253,47 @@
     function updateEventState(evt) {
       state.events.unshift(evt);
       state.events = state.events.slice(0, 80);
-      if (evt.kind === "eew") state.lastEew = evt;
-      if (evt.kind === "quake") state.latestQuake = evt;
+      if (evt.kind === "eew") activateEewDisplay(evt);
+      if (evt.kind === "quake") {
+        state.latestQuake = evt;
+        clearActiveEewDisplay();
+      }
       if (evt.raw?.kmoniDetection) els.kmoniSummary.textContent = evt.title;
+    }
+
+    function activateEewDisplay(evt) {
+      state.lastEew = evt;
+      if (evt.raw?.cancelled) {
+        clearActiveEewDisplay();
+        return;
+      }
+      state.activeEewDisplay = { evt, expiresAt: Date.now() + 7 * 60 * 1000 };
+      clearTimeout(state.eewDisplayTimer);
+      state.eewDisplayTimer = setTimeout(() => {
+        state.activeEewDisplay = null;
+        updateDashboard();
+      }, 7 * 60 * 1000);
+    }
+
+    function clearActiveEewDisplay() {
+      state.activeEewDisplay = null;
+      clearTimeout(state.eewDisplayTimer);
+      state.eewDisplayTimer = null;
+    }
+
+    function getLatestMapEvent() {
+      if (state.activeEewDisplay && state.activeEewDisplay.expiresAt > Date.now()) return state.activeEewDisplay.evt;
+      if (state.activeEewDisplay) clearActiveEewDisplay();
+      return state.latestQuake;
     }
 
     function updateDashboard() {
       els.eewSummary.textContent = state.lastEew ? formatEewSummary(state.lastEew) : "受信なし";
       els.eewDetail.textContent = state.lastEew ? formatDashboardDetail(state.lastEew) : "緊急地震速報は受信していません。";
-      els.latestQuakeSummary.textContent = state.latestQuake ? `${state.latestQuake.badge || "地震"} / ${state.latestQuake.meta || "時刻不明"}` : "受信なし";
-      els.latestDetail.textContent = state.latestQuake ? formatDashboardDetail(state.latestQuake) : "まだ地震情報を受信していません。";
-      drawLatestQuakeMap(state.latestQuake);
+      const latestMapEvent = getLatestMapEvent();
+      els.latestQuakeSummary.textContent = latestMapEvent ? `${latestMapEvent.badge || "地震"} / ${latestMapEvent.meta || "時刻不明"}` : "受信なし";
+      els.latestDetail.textContent = latestMapEvent ? formatDashboardDetail(latestMapEvent) : "まだ地震情報を受信していません。";
+      drawLatestQuakeMap(latestMapEvent);
 
       const history = state.events.filter((evt) => evt.kind === "quake").slice(0, 10);
       els.quakeHistory.innerHTML = "";
@@ -1304,6 +1336,7 @@
       return [
         evt.title,
         facts,
+        evt.kind === "eew" ? formatEewAreaList(evt, 14) : "",
         evt.meta ? `発表時刻: ${evt.meta}` : "",
         evt.badge ? `種別: ${evt.badge}` : "",
         evt.body
@@ -1385,6 +1418,7 @@
       drawMapBackground(ctx, canvas.width, canvas.height, proj);
       await drawJapanSvgBaseMap(ctx, proj, () => drawJapanBaseMap(ctx, proj));
       drawReferenceLabels(ctx, proj);
+      drawEewWarningAreas(ctx, proj, mapData, evt);
       drawObservationPoints(ctx, proj, mapData.points);
       if (mapData.hasLocation) drawEpicentralRings(ctx, proj, mapData);
       if (mapData.hasLocation) drawEpicenter(ctx, proj, mapData, 0xf2cc60);
@@ -1404,16 +1438,18 @@
       ctx.fill();
       ctx.stroke();
 
-      ctx.fillStyle = "#f5f7fb";
-      ctx.font = "800 22px system-ui, sans-serif";
-      ctx.fillText("地震発生時", x + 18, y + 32);
-
       const magnitude = formatMagnitude(mapData.magnitude);
       const depth = mapData.depth !== undefined ? formatDepth(mapData.depth) : "深さ不明";
+      const maxScale = mapData.maxScale || evt.scale || 0;
+      const title = evt.kind === "eew" ? "緊急地震速報" : "地震発生時";
       const rows = [
         ["マグニチュード", magnitude],
         ["深さ", depth]
       ];
+      ctx.fillStyle = "#f5f7fb";
+      ctx.font = "800 22px system-ui, sans-serif";
+      ctx.fillText(title, x + 18, y + 32);
+
       ctx.font = "700 16px system-ui, sans-serif";
       rows.forEach(([label, value], i) => {
         const bx = x + 18 + i * 190;
@@ -1426,10 +1462,10 @@
         ctx.font = "700 16px system-ui, sans-serif";
       });
 
-      if (evt.scale) {
+      if (maxScale) {
         const cx = x + panelWidth - 42;
         const cy = y + 43;
-        ctx.fillStyle = seismicColor(evt.scale);
+        ctx.fillStyle = seismicColor(maxScale);
         ctx.strokeStyle = "rgba(255,255,255,.95)";
         ctx.lineWidth = 3;
         ctx.beginPath();
@@ -1441,10 +1477,10 @@
         ctx.textBaseline = "middle";
         ctx.font = "900 16px system-ui, sans-serif";
         ctx.lineWidth = 4;
-        ctx.strokeStyle = seismicTextStrokeColor(evt.scale);
-        ctx.strokeText(compactScaleText(evt.scale), cx, cy + 1);
-        ctx.fillStyle = seismicTextColor(evt.scale);
-        ctx.fillText(compactScaleText(evt.scale), cx, cy + 1);
+        ctx.strokeStyle = seismicTextStrokeColor(maxScale);
+        ctx.strokeText(compactScaleText(maxScale), cx, cy + 1);
+        ctx.fillStyle = seismicTextColor(maxScale);
+        ctx.fillText(compactScaleText(maxScale), cx, cy + 1);
         ctx.restore();
       }
     }
@@ -1466,6 +1502,8 @@
         facts.maxIntensity ? { name: evt.kind === "eew" ? "最大予想震度" : "最大震度", value: facts.maxIntensity, inline: true } : null,
         facts.magnitude ? { name: "マグニチュード", value: facts.magnitude, inline: true } : null
       ].filter(Boolean);
+      const eewAreas = evt.kind === "eew" ? formatEewAreaList(evt, 18) : "";
+      if (eewAreas) factFields.push({ name: "対象範囲", value: eewAreas.slice(0, 1024), inline: false });
 
       const payload = {
         username: "地震通知",
@@ -1573,8 +1611,23 @@
         facts.hypocenter ? `震源: ${facts.hypocenter}` : "",
         facts.maxIntensity ? `${evt.kind === "eew" ? "最大予想震度" : "最大震度"}: ${facts.maxIntensity}` : "",
         facts.magnitude ? `M: ${facts.magnitude.replace(/^M/, "")}` : "",
+        evt.kind === "eew" ? formatEewAreaList(evt, 8).replace(/\n/g, " / ") : "",
         evt.meta ? `発表: ${evt.meta}` : ""
       ].filter(Boolean).join(" / ");
+    }
+
+    function formatEewAreaList(evt, limit = 12) {
+      const areas = Array.isArray(evt.raw?.areas) ? evt.raw.areas : [];
+      if (evt.kind !== "eew" || areas.length === 0) return "";
+      const title = evt.eewLevel === "warning" ? "警報対象範囲" : "予報対象範囲";
+      const text = areas.slice(0, limit).map((area) => {
+        const scale = area.scaleTo || area.scaleFrom || area.scale;
+        const scaleTextPart = scale ? ` ${scaleText(scale)}` : "";
+        const arrival = area.arrivalTime ? ` ${area.arrivalTime}` : "";
+        return `${area.name || "不明"}${scaleTextPart}${arrival}`;
+      }).join("、");
+      const suffix = areas.length > limit ? ` ほか${areas.length - limit}件` : "";
+      return `${title}: ${text}${suffix}`;
     }
 
     function extractYoutubeVideoId(url) {
@@ -1783,7 +1836,8 @@
       drawRemoteIslandLabels(ctx, proj);
       drawReferenceLabels(ctx, proj);
       if (mapData.hasLocation) drawEpicentralRings(ctx, proj, mapData);
-      drawTsunamiAreas(ctx, proj, mapData.areas);
+      drawEewWarningAreas(ctx, proj, mapData, evt);
+      drawTsunamiAreas(ctx, proj, mapData.areas, evt);
       drawObservationPoints(ctx, proj, mapData.points);
       if (mapData.hasLocation) drawEpicenter(ctx, proj, mapData, accentColor);
       drawObservationLabels(ctx, proj, mapData.points);
@@ -1805,6 +1859,7 @@
         name: hypo.name || raw.hypocenterName || raw.name || "",
         depth: hypo.depth,
         magnitude: hypo.magnitude,
+        maxScale: intensityTextToScale(raw.earthquake?.maxScale ?? raw.maxScale ?? raw.MaxScale ?? raw.maxIntensity ?? raw.MaxIntensity ?? evt.scale),
         points: normalizeMapPoints(raw.points || raw.observationPoints || []),
         areas: normalizeMapAreas(raw.areas || raw.forecastAreas || raw.warnAreas || [])
       };
@@ -2363,8 +2418,9 @@
       ctx.restore();
     }
 
-    function drawTsunamiAreas(ctx, proj, areas) {
+    function drawTsunamiAreas(ctx, proj, areas, evt = null) {
       for (const area of areas.slice(0, 18)) {
+        if (evt?.kind === "eew" && evt.eewLevel === "warning" && area.type === "eew") continue;
         const p = proj(area.lat, area.lon);
         const isEewArea = area.type === "eew";
         const fill = area.scale ? seismicColor(area.scale) : tsunamiGradeColor(area.grade);
@@ -2389,6 +2445,57 @@
           ctx.fillText(truncateText(ctx, label, 110), p.x + (isEewArea ? 22 : 12), p.y + 4);
         }
       }
+    }
+
+    function drawEewWarningAreas(ctx, proj, mapData, evt) {
+      if (evt.kind !== "eew" || evt.eewLevel !== "warning") return;
+      const areas = (mapData.areas || []).filter((area) => area.type === "eew");
+      if (areas.length === 0) return;
+
+      ctx.save();
+      ctx.globalCompositeOperation = "source-over";
+      for (const area of areas.slice(0, 40)) {
+        if (proj.isVisible && !proj.isVisible(area.lat, area.lon, 120)) continue;
+        const p = proj(area.lat, area.lon);
+        const radius = Math.max(26, Math.min(58, 24 + Number(area.scale || 0) * 0.55));
+        const gradient = ctx.createRadialGradient(p.x, p.y, radius * 0.15, p.x, p.y, radius);
+        gradient.addColorStop(0, "rgba(255, 228, 73, .72)");
+        gradient.addColorStop(0.72, "rgba(255, 205, 38, .44)");
+        gradient.addColorStop(1, "rgba(255, 190, 24, 0)");
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.strokeStyle = "rgba(255, 245, 145, .92)";
+      ctx.fillStyle = "rgba(255, 225, 58, .70)";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([7, 5]);
+      for (const area of areas.slice(0, 28)) {
+        if (proj.isVisible && !proj.isVisible(area.lat, area.lon, 80)) continue;
+        const p = proj(area.lat, area.lon);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 18, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+
+      ctx.font = "800 12px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      for (const area of areas.slice(0, 16)) {
+        if (proj.isVisible && !proj.isVisible(area.lat, area.lon, 80)) continue;
+        const p = proj(area.lat, area.lon);
+        const label = area.scale ? compactScaleText(area.scale) : "警";
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = "rgba(20, 15, 0, .85)";
+        ctx.strokeText(label, p.x, p.y + 1);
+        ctx.fillStyle = "#fff8bd";
+        ctx.fillText(label, p.x, p.y + 1);
+      }
+      ctx.restore();
     }
 
     function hexToRgba(color, alpha) {
