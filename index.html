@@ -2554,17 +2554,22 @@
 
     function drawEewWarningAreas(ctx, proj, mapData, evt) {
       if (!isEewWarningEvent(evt)) return;
-      const areas = (mapData.areas || []).filter((area) => area.type === "eew");
+      const areas = (mapData.areas || [])
+        .filter((area) => area.type === "eew" && isValidMapCoordinate(area.lat, area.lon));
       if (areas.length === 0) return;
+      const targets = areas
+        .slice(0, 40)
+        .map((area) => ({ area, point: proj(area.lat, area.lon) }))
+        .filter(({ area }) => !proj.isVisible || proj.isVisible(area.lat, area.lon, 160));
 
       ctx.save();
       ctx.globalCompositeOperation = "source-over";
       // The WebSocket provides EEW warning area names, not exact polygons.
       // We draw only those warning areas, using their mapped centers as a
-      // yellow range overlay. Forecast EEW never reaches this function.
-      for (const area of areas.slice(0, 40)) {
-        if (proj.isVisible && !proj.isVisible(area.lat, area.lon, 120)) continue;
-        const p = proj(area.lat, area.lon);
+      // yellow estimated overlay. Forecast EEW never reaches this function.
+      drawEstimatedEewTargetEnvelope(ctx, targets.map((target) => target.point));
+
+      for (const { area, point: p } of targets) {
         const radius = Math.max(26, Math.min(58, 24 + Number(area.scale || 0) * 0.55));
         const gradient = ctx.createRadialGradient(p.x, p.y, radius * 0.15, p.x, p.y, radius);
         gradient.addColorStop(0, "rgba(255, 228, 73, .72)");
@@ -2580,9 +2585,7 @@
       ctx.fillStyle = "rgba(255, 225, 58, .70)";
       ctx.lineWidth = 2;
       ctx.setLineDash([7, 5]);
-      for (const area of areas.slice(0, 28)) {
-        if (proj.isVisible && !proj.isVisible(area.lat, area.lon, 80)) continue;
-        const p = proj(area.lat, area.lon);
+      for (const { point: p } of targets.slice(0, 28)) {
         ctx.beginPath();
         ctx.arc(p.x, p.y, 18, 0, Math.PI * 2);
         ctx.fill();
@@ -2593,9 +2596,7 @@
       ctx.font = "800 12px system-ui, sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      for (const area of areas.slice(0, 16)) {
-        if (proj.isVisible && !proj.isVisible(area.lat, area.lon, 80)) continue;
-        const p = proj(area.lat, area.lon);
+      for (const { area, point: p } of targets.slice(0, 16)) {
         const label = area.scale ? compactScaleText(area.scale) : "警";
         ctx.lineWidth = 4;
         ctx.strokeStyle = "rgba(20, 15, 0, .85)";
@@ -2608,6 +2609,79 @@
 
     function isEewWarningEvent(evt) {
       return evt?.kind === "eew" && evt.eewLevel === "warning" && !evt.raw?.cancelled;
+    }
+
+    function drawEstimatedEewTargetEnvelope(ctx, points) {
+      if (points.length === 0) return;
+      const samples = [];
+      const radius = points.length === 1 ? 54 : 42;
+      for (const point of points) {
+        for (let i = 0; i < 12; i += 1) {
+          const angle = (Math.PI * 2 * i) / 12;
+          samples.push({
+            x: point.x + Math.cos(angle) * radius,
+            y: point.y + Math.sin(angle) * radius
+          });
+        }
+      }
+      const hull = convexHull(samples);
+      if (hull.length < 3) return;
+
+      ctx.save();
+      ctx.fillStyle = "rgba(255, 216, 43, .16)";
+      ctx.strokeStyle = "rgba(255, 238, 120, .44)";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([10, 8]);
+      ctx.beginPath();
+      hull.forEach((point, index) => {
+        if (index === 0) ctx.moveTo(point.x, point.y);
+        else ctx.lineTo(point.x, point.y);
+      });
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      const labelAnchor = hull.reduce((acc, point) => ({
+        x: acc.x + point.x / hull.length,
+        y: acc.y + point.y / hull.length
+      }), { x: 0, y: 0 });
+      ctx.setLineDash([]);
+      ctx.font = "800 12px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const label = points.length === 1 ? "対象地点周辺" : "推定対象範囲";
+      const width = ctx.measureText(label).width + 18;
+      ctx.fillStyle = "rgba(35, 25, 0, .70)";
+      ctx.strokeStyle = "rgba(255, 238, 120, .58)";
+      ctx.lineWidth = 1;
+      roundRect(ctx, labelAnchor.x - width / 2, labelAnchor.y - 13, width, 26, 8);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = "#fff4ad";
+      ctx.fillText(label, labelAnchor.x, labelAnchor.y + 1);
+      ctx.restore();
+    }
+
+    function convexHull(points) {
+      const sorted = [...points]
+        .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+        .sort((a, b) => a.x === b.x ? a.y - b.y : a.x - b.x);
+      if (sorted.length <= 1) return sorted;
+      const cross = (origin, a, b) => (a.x - origin.x) * (b.y - origin.y) - (a.y - origin.y) * (b.x - origin.x);
+      const lower = [];
+      for (const point of sorted) {
+        while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], point) <= 0) lower.pop();
+        lower.push(point);
+      }
+      const upper = [];
+      for (let i = sorted.length - 1; i >= 0; i -= 1) {
+        const point = sorted[i];
+        while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], point) <= 0) upper.pop();
+        upper.push(point);
+      }
+      lower.pop();
+      upper.pop();
+      return lower.concat(upper);
     }
 
     function hexToRgba(color, alpha) {
