@@ -1854,11 +1854,12 @@
 
     function buildMapBounds(mapData, width, height) {
       const base = { minLat: 23.0, maxLat: 46.5, minLon: 122.0, maxLon: 148.5 };
+      const focusCoords = getMapFocusCoords(mapData);
       const coords = [];
       if (mapData.hasLocation) coords.push({ lat: mapData.lat, lon: mapData.lon });
-      coords.push(...mapData.points, ...mapData.areas);
+      coords.push(...focusCoords.points, ...focusCoords.areas);
 
-      let bounds = { ...base };
+      let bounds = focusCoords.zoomed ? createEmptyBounds() : { ...base };
       for (const coord of coords) {
         if (!Number.isFinite(coord.lat) || !Number.isFinite(coord.lon)) continue;
         bounds.minLat = Math.min(bounds.minLat, coord.lat);
@@ -1867,9 +1868,13 @@
         bounds.maxLon = Math.max(bounds.maxLon, coord.lon);
       }
 
-      const far = bounds.minLat < base.minLat || bounds.maxLat > base.maxLat || bounds.minLon < base.minLon || bounds.maxLon > base.maxLon;
-      const padLat = far ? Math.max(2.5, (bounds.maxLat - bounds.minLat) * 0.14) : 0;
-      const padLon = far ? Math.max(3.0, (bounds.maxLon - bounds.minLon) * 0.14) : 0;
+      if (!Number.isFinite(bounds.minLat)) bounds = { ...base };
+
+      const far = focusCoords.zoomed || bounds.minLat < base.minLat || bounds.maxLat > base.maxLat || bounds.minLon < base.minLon || bounds.maxLon > base.maxLon;
+      const minPadLat = focusCoords.zoomed ? 0.75 : 2.5;
+      const minPadLon = focusCoords.zoomed ? 0.95 : 3.0;
+      const padLat = far ? Math.max(minPadLat, (bounds.maxLat - bounds.minLat) * 0.22) : 0;
+      const padLon = far ? Math.max(minPadLon, (bounds.maxLon - bounds.minLon) * 0.22) : 0;
       bounds.minLat -= padLat;
       bounds.maxLat += padLat;
       bounds.minLon -= padLon;
@@ -1889,6 +1894,41 @@
         bounds.maxLat += extra;
       }
       return bounds;
+    }
+
+    function getMapFocusCoords(mapData) {
+      const points = Array.isArray(mapData.points) ? mapData.points : [];
+      const areas = Array.isArray(mapData.areas) ? mapData.areas : [];
+      if (!mapData.hasLocation || points.length === 0) return { points, areas, zoomed: false };
+
+      const maxScale = points.reduce((max, point) => Math.max(max, Number(point.scale || 0)), 0);
+      if (!maxScale) return { points, areas, zoomed: false };
+
+      const threshold = Math.max(10, maxScale - focusScaleDrop(maxScale));
+      const focusedPoints = points.filter((point) => Number(point.scale || 0) >= threshold);
+      if (focusedPoints.length === 0) return { points, areas, zoomed: false };
+
+      return {
+        points: focusedPoints,
+        areas,
+        zoomed: true
+      };
+    }
+
+    function focusScaleDrop(maxScale) {
+      const n = Number(maxScale || 0);
+      if (n >= 55) return 15;
+      if (n >= 45) return 20;
+      return 20;
+    }
+
+    function createEmptyBounds() {
+      return {
+        minLat: Infinity,
+        maxLat: -Infinity,
+        minLon: Infinity,
+        maxLon: -Infinity
+      };
     }
 
     function drawMapBackground(ctx, width, height, proj) {
