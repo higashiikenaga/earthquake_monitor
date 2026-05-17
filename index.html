@@ -598,6 +598,7 @@
       kmoniLoading: false,
       kmoniNextTimer: null,
       kmoniLastAlert: { level: "", time: 0 },
+      wakeLock: null,
       japanSvgMapPromise: null,
       japanSvgMapMetaPromise: null,
       stationLocations: null,
@@ -640,6 +641,12 @@
     els.disconnectBtn.addEventListener("click", disconnect);
     els.kmoniRefreshBtn.addEventListener("click", () => updateKmoniImage(true));
     els.kmoniLayer.addEventListener("change", () => updateKmoniImage(true));
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") {
+        requestMonitorWakeLock();
+        updateKmoniImage(true);
+      }
+    });
     els.testBtn.addEventListener("click", () => {
       const evt = {
         id: "test-" + Date.now(),
@@ -723,6 +730,7 @@
       disconnect(false);
       connectMainWs(state.connectionGeneration);
       connectEewWs(state.connectionGeneration);
+      requestMonitorWakeLock();
     }
 
     function connectMainWs(generation = state.connectionGeneration) {
@@ -807,6 +815,7 @@
         state.connectionGeneration += 1;
         clearTimeout(state.reconnectTimer);
         clearTimeout(state.eewReconnectTimer);
+        releaseMonitorWakeLock();
       }
       if (state.ws) {
         state.ws.onclose = null;
@@ -819,6 +828,29 @@
         state.eewWs = null;
       }
       setWsStatus("", "未接続");
+    }
+
+    async function requestMonitorWakeLock() {
+      if (!("wakeLock" in navigator) || document.visibilityState !== "visible" || state.wakeLock) return;
+      try {
+        state.wakeLock = await navigator.wakeLock.request("screen");
+        state.wakeLock.addEventListener("release", () => {
+          state.wakeLock = null;
+        });
+      } catch (error) {
+        console.debug("wake lock unavailable", error);
+      }
+    }
+
+    async function releaseMonitorWakeLock() {
+      if (!state.wakeLock) return;
+      const lock = state.wakeLock;
+      state.wakeLock = null;
+      try {
+        await lock.release();
+      } catch (error) {
+        console.debug("wake lock release failed", error);
+      }
     }
 
     function normalizeP2PEvent(raw) {
@@ -1424,8 +1456,9 @@
         return;
       }
 
+      const shouldMentionEveryone = shouldDiscordMentionEveryone(evt);
       const isUrgent = evt.kind === "eew" || evt.kind === "tsunami";
-      const mention = els.discordMention.checked && isUrgent ? "@everyone " : "";
+      const mention = shouldMentionEveryone ? "@everyone " : "";
       const color = evt.raw?.kmoniDetection ? 0xf2cc60 : evt.kind === "eew" ? 0xff6b6b : evt.kind === "tsunami" ? 0x73d2de : evt.kind === "quake" ? 0xf2cc60 : 0x56d364;
       const facts = getEventFacts(evt);
       const factFields = [
@@ -1437,7 +1470,7 @@
       const payload = {
         username: "地震通知",
         content: mention + (isUrgent ? `**${evt.title}**` : evt.title),
-        allowed_mentions: els.discordMention.checked && isUrgent ? { parse: ["everyone"] } : { parse: [] },
+        allowed_mentions: shouldMentionEveryone ? { parse: ["everyone"] } : { parse: [] },
         embeds: [{
           title: evt.title,
           description: evt.body.slice(0, 3900),
@@ -1486,6 +1519,17 @@
         console.error(error);
         addLocalNotice("Discord送信エラー", String(error.message || error));
       }
+    }
+
+    function shouldDiscordMentionEveryone(evt) {
+      if (!els.discordMention.checked) return false;
+      if (evt.kind === "tsunami") return !evt.raw?.cancelled;
+      if (evt.kind !== "eew") return false;
+      if (evt.raw?.cancelled) return false;
+      const level = String(evt.eewLevel || evt.raw?.eewLevel || "").toLowerCase();
+      if (level === "forecast" || level === "detection") return false;
+      if (level === "warning") return true;
+      return Boolean(evt.raw?.isWarn || evt.raw?.warning || evt.raw?.alertflg || evt.raw?.alertFlag);
     }
 
     async function sendYoutubeLiveComment(evt) {
@@ -1551,8 +1595,9 @@
     }
 
     function getKmoniDateForEvent(evt) {
+      if (evt.raw?.kmoniDetection && evt.meta) return parseDateLike(evt.meta) || state.lastKmoniOkDate || new Date(Date.now() - 12000);
       const eventDate = parseEventOccurrenceDate(evt);
-      if (eventDate) return new Date(eventDate.getTime() + 1000);
+      if (eventDate) return new Date(eventDate.getTime() + 8000);
       return state.lastKmoniOkDate || new Date(Date.now() - 12000);
     }
 
@@ -2356,7 +2401,11 @@
 
     function drawObservationPoints(ctx, proj, points) {
       const maxScale = points.reduce((max, point) => Math.max(max, Number(point.scale || 0)), 0);
-      for (const point of points.slice(0, 80)) {
+      const selected = [...points]
+        .sort((a, b) => Number(b.scale || 0) - Number(a.scale || 0))
+        .slice(0, 120)
+        .sort((a, b) => Number(a.scale || 0) - Number(b.scale || 0));
+      for (const point of selected) {
         const p = proj(point.lat, point.lon);
         const isMax = Number(point.scale || 0) === maxScale && maxScale > 0;
         const size = observationTileSize(point.scale, maxScale);
