@@ -455,6 +455,7 @@
 
         <div class="toggles">
           <label class="toggle"><input type="checkbox" id="sound" checked /> 通知音を鳴らす</label>
+          <label class="toggle"><input type="checkbox" id="externalSound" /> OBS向け専用音声アプリを使う</label>
           <label class="toggle"><input type="checkbox" id="dedupe" checked /> 同じIDの重複通知を抑止</label>
           <label class="toggle"><input type="checkbox" id="autoReconnect" checked /> 切断時に自動再接続</label>
           <label class="toggle"><input type="checkbox" id="streamMode" /> 配信モード（URL等を隠す）</label>
@@ -613,12 +614,12 @@
       connectBtn: $("connectBtn"), notifyBtn: $("notifyBtn"), testBtn: $("testBtn"), disconnectBtn: $("disconnectBtn"), feed: $("feed"),
       eewSummary: $("eewSummary"), latestQuakeSummary: $("latestQuakeSummary"), kmoniSummary: $("kmoniSummary"), latestDetail: $("latestDetail"), latestQuakeMap: $("latestQuakeMap"), quakeHistory: $("quakeHistory"), eewDetail: $("eewDetail"),
       kmoniLayer: $("kmoniLayer"), kmoniRefreshBtn: $("kmoniRefreshBtn"), kmoniImage: $("kmoniImage"), kmoniTime: $("kmoniTime"),
-      minScale: $("minScale"), tsunamiMode: $("tsunamiMode"), eewMode: $("eewMode"), sound: $("sound"), dedupe: $("dedupe"), autoReconnect: $("autoReconnect"), streamMode: $("streamMode"), wsUrl: $("wsUrl"), eewWsUrl: $("eewWsUrl"),
+      minScale: $("minScale"), tsunamiMode: $("tsunamiMode"), eewMode: $("eewMode"), sound: $("sound"), externalSound: $("externalSound"), dedupe: $("dedupe"), autoReconnect: $("autoReconnect"), streamMode: $("streamMode"), wsUrl: $("wsUrl"), eewWsUrl: $("eewWsUrl"),
       discordWebhookUrl: $("discordWebhookUrl"), discordEnabled: $("discordEnabled"), discordMention: $("discordMention"), discordMapEnabled: $("discordMapEnabled"), discordTestBtn: $("discordTestBtn"), clearWebhookBtn: $("clearWebhookBtn"),
       youtubeRelayUrl: $("youtubeRelayUrl"), youtubeLiveUrl: $("youtubeLiveUrl"), youtubeEnabled: $("youtubeEnabled")
     };
 
-    const settingsKeys = ["minScale", "tsunamiMode", "eewMode", "sound", "dedupe", "autoReconnect", "streamMode", "wsUrl", "eewWsUrl", "kmoniLayer", "discordWebhookUrl", "discordEnabled", "discordMention", "discordMapEnabled", "youtubeRelayUrl", "youtubeLiveUrl", "youtubeEnabled"];
+    const settingsKeys = ["minScale", "tsunamiMode", "eewMode", "sound", "externalSound", "dedupe", "autoReconnect", "streamMode", "wsUrl", "eewWsUrl", "kmoniLayer", "discordWebhookUrl", "discordEnabled", "discordMention", "discordMapEnabled", "youtubeRelayUrl", "youtubeLiveUrl", "youtubeEnabled"];
     for (const key of settingsKeys) {
       const saved = localStorage.getItem("eq_" + key);
       if (saved !== null) {
@@ -1247,7 +1248,7 @@
         requireInteraction: evt.kind === "eew" || evt.kind === "tsunami",
       });
       notification.onclick = () => window.focus();
-      if (els.sound.checked) beep(evt);
+      if (els.sound.checked) playAlertSound(evt);
     }
 
     function updateEventState(evt) {
@@ -3255,6 +3256,34 @@
         raw: { localNotice: true, body }
       };
       pushEvent(evt, false);
+    }
+
+    function playAlertSound(evt) {
+      if (els.externalSound.checked) {
+        sendExternalAlertSound(evt);
+        return;
+      }
+      beep(evt);
+    }
+
+    async function sendExternalAlertSound(evt) {
+      try {
+        await fetch("http://127.0.0.1:18765/play", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            pattern: soundPatternForEvent(evt),
+            event: {
+              kind: evt.kind,
+              eewLevel: evt.eewLevel || "",
+              tsunamiGrade: evt.tsunamiGrade || "",
+              raw: evt.raw?.kmoniDetection ? { kmoniDetection: true } : {}
+            }
+          })
+        });
+      } catch (error) {
+        addLocalNotice("専用音声アプリ未接続", "obs-alert-sound.py を起動してください。ブラウザ音は鳴らしていません。");
+      }
     }
 
     function beep(evt) {
