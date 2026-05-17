@@ -1,6 +1,7 @@
 const fs = require("fs");
 
-const SOURCE_URL = "https://www.data.jma.go.jp/eqev/data/kyoshin/jma-shindo.html";
+const FULL_SOURCE_URL = "https://gist.githubusercontent.com/iku55/79005d1896631ad6117bbe327b8162c1/raw/stations.json";
+const JMA_SOURCE_URL = "https://www.data.jma.go.jp/eqev/data/kyoshin/jma-shindo.html";
 const OUTPUT = "station-locations.json";
 
 main().catch((error) => {
@@ -9,7 +10,16 @@ main().catch((error) => {
 });
 
 async function main() {
-  const res = await fetch(SOURCE_URL);
+  try {
+    const stations = await fetchFullStationLocations();
+    fs.writeFileSync(OUTPUT, `${JSON.stringify(stations.lookup, null, 2)}\n`, "utf8");
+    console.log(`Wrote ${OUTPUT}: ${stations.count} stations, ${Object.keys(stations.lookup).length} lookup keys`);
+    return;
+  } catch (error) {
+    console.warn(`Full station list failed, falling back to JMA-only list: ${error.message || error}`);
+  }
+
+  const res = await fetch(JMA_SOURCE_URL);
   if (!res.ok) throw new Error(`Failed to fetch JMA station list: HTTP ${res.status}`);
   const html = await res.text();
   const rows = [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)]
@@ -38,7 +48,39 @@ async function main() {
   }
 
   fs.writeFileSync(OUTPUT, `${JSON.stringify(stations, null, 2)}\n`, "utf8");
-  console.log(`Wrote ${OUTPUT}: ${count} active stations, ${Object.keys(stations).length} lookup keys`);
+  console.log(`Wrote ${OUTPUT}: ${count} JMA stations, ${Object.keys(stations).length} lookup keys`);
+}
+
+async function fetchFullStationLocations() {
+  const res = await fetch(FULL_SOURCE_URL);
+  if (!res.ok) throw new Error(`Failed to fetch full station list: HTTP ${res.status}`);
+  const list = await res.json();
+  if (!Array.isArray(list)) throw new Error("Full station list is not an array");
+
+  const lookup = {};
+  let count = 0;
+  for (const item of list) {
+    const lat = Number(item.lat);
+    const lon = Number(item.lon);
+    const name = item.name || "";
+    const pref = item.pref?.name || "";
+    if (!name || !Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+
+    const station = {
+      lat,
+      lon,
+      region: item.area?.name || "",
+      city: item.city?.name || "",
+      name,
+      pref,
+      affi: item.affi || "",
+      code: item.code || ""
+    };
+    addStation(lookup, name, station);
+    if (pref) addStation(lookup, `${pref}|${name}`, station);
+    count += 1;
+  }
+  return { lookup, count };
 }
 
 function extractCells(rowHtml) {
@@ -73,6 +115,7 @@ function addStation(stations, key, station) {
 function normalizeName(value) {
   return String(value || "")
     .replace(/\s+/g, "")
+    .replace(/[＊*]$/g, "")
     .replace(/[（(].*?[）)]/g, "")
     .trim();
 }

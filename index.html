@@ -1941,6 +1941,7 @@
     function normalizeObservationLabel(value) {
       return String(value || "")
         .replace(/\s+/g, "")
+        .replace(/[＊*]$/g, "")
         .replace(/\d+$/, "")
         .replace(/震度[0-9弱強]+$/, "")
         .replace(/[（(].*?[）)]/g, "");
