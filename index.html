@@ -599,6 +599,7 @@
       kmoniNextTimer: null,
       kmoniLastAlert: { level: "", time: 0 },
       japanSvgMapPromise: null,
+      japanSvgMapMetaPromise: null,
       stationLocations: null,
       seen: new Set(JSON.parse(localStorage.getItem("eq_seen_ids") || "[]")),
       maxSeen: 300,
@@ -1964,7 +1965,9 @@
 
     function createMapProjection(width, height, mapData) {
       const bounds = buildMapBounds(mapData, width, height);
-      const pad = { left: 64, right: 48, top: 34, bottom: 42 };
+      const pad = bounds.focused
+        ? { left: 18, right: 18, top: 18, bottom: 18 }
+        : { left: 64, right: 48, top: 34, bottom: 42 };
       const usableWidth = width - pad.left - pad.right;
       const usableHeight = height - pad.top - pad.bottom;
       const tileSize = 256;
@@ -1995,6 +1998,10 @@
         lon: (bounds.minLon + bounds.maxLon) / 2
       };
       project.worldPixel = (lat, lon) => latLonToWorldPixel(lat, lon, zoom, tileSize);
+      project.worldToFinal = (world) => ({
+        x: offsetX + (world.x - northWest.x) * scale,
+        y: offsetY + (world.y - northWest.y) * scale
+      });
       project.debugPoint = (point) => {
         const world = project.worldPixel(point.lat, point.lon);
         const final = project(point.lat, point.lon);
@@ -2049,16 +2056,17 @@
       if (!Number.isFinite(bounds.minLat)) bounds = { ...base };
 
       const far = focusCoords.zoomed || bounds.minLat < base.minLat || bounds.maxLat > base.maxLat || bounds.minLon < base.minLon || bounds.maxLon > base.maxLon;
-      const minPadLat = focusCoords.zoomed ? 0.75 : 2.5;
-      const minPadLon = focusCoords.zoomed ? 0.95 : 3.0;
-      const padLat = far ? Math.max(minPadLat, (bounds.maxLat - bounds.minLat) * 0.22) : 0;
-      const padLon = far ? Math.max(minPadLon, (bounds.maxLon - bounds.minLon) * 0.22) : 0;
+      const minPadLat = focusCoords.zoomed ? 0.28 : 2.5;
+      const minPadLon = focusCoords.zoomed ? 0.36 : 3.0;
+      const padRatio = focusCoords.zoomed ? 0.10 : 0.22;
+      const padLat = far ? Math.max(minPadLat, (bounds.maxLat - bounds.minLat) * padRatio) : 0;
+      const padLon = far ? Math.max(minPadLon, (bounds.maxLon - bounds.minLon) * padRatio) : 0;
       bounds.minLat -= padLat;
       bounds.maxLat += padLat;
       bounds.minLon -= padLon;
       bounds.maxLon += padLon;
 
-      const plotAspect = (width - 112) / (height - 76);
+      const plotAspect = focusCoords.zoomed ? width / height : (width - 112) / (height - 76);
       const latSpan = Math.max(1, bounds.maxLat - bounds.minLat);
       const lonSpan = Math.max(1, bounds.maxLon - bounds.minLon);
       const currentAspect = lonSpan / latSpan;
@@ -2071,6 +2079,7 @@
         bounds.minLat -= extra;
         bounds.maxLat += extra;
       }
+      bounds.focused = focusCoords.zoomed;
       return bounds;
     }
 
@@ -2083,7 +2092,12 @@
       if (!maxScale) return { points, areas, zoomed: false };
 
       const threshold = Math.max(10, maxScale - focusScaleDrop(maxScale));
-      const focusedPoints = points.filter((point) => Number(point.scale || 0) >= threshold);
+      let focusedPoints = points.filter((point) => Number(point.scale || 0) >= threshold);
+      if (points.length >= 25 && focusedPoints.length > 70) {
+        focusedPoints = [...focusedPoints]
+          .sort((a, b) => distanceToEpicenter(a, mapData) - distanceToEpicenter(b, mapData))
+          .slice(0, 70);
+      }
       if (focusedPoints.length === 0) return { points, areas, zoomed: false };
 
       return {
@@ -2096,8 +2110,14 @@
     function focusScaleDrop(maxScale) {
       const n = Number(maxScale || 0);
       if (n >= 55) return 15;
-      if (n >= 45) return 20;
-      return 20;
+      if (n >= 45) return 10;
+      if (n >= 30) return 10;
+      return 10;
+    }
+
+    function distanceToEpicenter(point, mapData) {
+      if (!mapData.hasLocation) return 0;
+      return Math.hypot(point.lat - mapData.lat, (point.lon - mapData.lon) * Math.cos(point.lat * Math.PI / 180));
     }
 
     function createEmptyBounds() {
@@ -2154,27 +2174,28 @@
 
     async function drawJapanSvgBaseMap(ctx, proj, fallback) {
       try {
-        const img = await loadJapanSvgMap();
-        const bounds = japanSvgMapBounds;
-        const topLeft = proj(bounds.maxLat, bounds.minLon);
-        const bottomRight = proj(bounds.minLat, bounds.maxLon);
-        const x = Math.min(topLeft.x, bottomRight.x);
-        const y = Math.min(topLeft.y, bottomRight.y);
-        const width = Math.abs(bottomRight.x - topLeft.x);
-        const height = Math.abs(bottomRight.y - topLeft.y);
+        const [img, meta] = await Promise.all([loadJapanSvgMap(), loadJapanSvgMapMeta()]);
+        const scale = 2 ** (proj.zoom - meta.zoom) * (proj.tileSize / meta.tileSize);
+        const topLeft = proj.worldToFinal({ x: meta.minX * scale, y: meta.minY * scale });
+        const bottomRight = proj.worldToFinal({ x: meta.maxX * scale, y: meta.maxY * scale });
+        const drawWidth = bottomRight.x - topLeft.x;
+        const drawHeight = bottomRight.y - topLeft.y;
+        if (!Number.isFinite(drawWidth) || !Number.isFinite(drawHeight) || drawWidth <= 0 || drawHeight <= 0) {
+          fallback();
+          return;
+        }
 
+        // The SVG is generated from geographic polygons after Web Mercator
+        // projection, so it can be placed by world pixel bounds. Using a normal
+        // lon/lat SVG here causes the vertical drift seen against markers.
         ctx.save();
-        ctx.shadowColor = "rgba(0,0,0,.22)";
-        ctx.shadowBlur = 7;
-        ctx.globalAlpha = .92;
-        // The marker layer and the SVG bounds are both placed through proj().
-        // This keeps the background and marker layers in the same final pixel
-        // coordinate pipeline while using the more accurate Japan SVG outline
-        // instead of the older hand-written approximate polygons.
-        ctx.drawImage(img, x, y, width, height);
+        ctx.shadowColor = "rgba(0,0,0,.30)";
+        ctx.shadowBlur = 8;
+        ctx.shadowOffsetY = 3;
+        ctx.drawImage(img, topLeft.x, topLeft.y, drawWidth, drawHeight);
         ctx.restore();
       } catch (error) {
-        console.warn("Japan SVG map load failed, using fallback polygons", error);
+        console.warn("japan svg map failed", error);
         fallback();
       }
     }
@@ -2190,6 +2211,16 @@
         });
       }
       return state.japanSvgMapPromise;
+    }
+
+    function loadJapanSvgMapMeta() {
+      if (!state.japanSvgMapMetaPromise) {
+        state.japanSvgMapMetaPromise = fetch(japanSvgMapMetaUrl, { cache: "no-cache" }).then((res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return res.json();
+        });
+      }
+      return state.japanSvgMapMetaPromise;
     }
 
     function drawJapanBaseMap(ctx, proj) {
@@ -2434,6 +2465,10 @@
         return { x: p.x + x, y: p.y + y };
       };
       Object.assign(projectWithOffset, baseProject);
+      projectWithOffset.worldToFinal = (world) => {
+        const p = baseProject.worldToFinal(world);
+        return { x: p.x + x, y: p.y + y };
+      };
       projectWithOffset.isVisible = (lat, lon, margin = 18) => {
         const p = projectWithOffset(lat, lon);
         return p.x >= x - margin && p.x <= x + width + margin && p.y >= y - margin && p.y <= y + height + margin;
@@ -2470,8 +2505,8 @@
       ctx.fillText(`${mapData.lat.toFixed(2)}N / ${mapData.lon.toFixed(2)}E`, x + 102, y + height + 24);
     }
 
-    const japanSvgMapUrl = "https://upload.wikimedia.org/wikipedia/commons/6/6e/Japan_location_map.svg";
-    const japanSvgMapBounds = { minLat: 22.95, maxLat: 47.56, minLon: 121.96, maxLon: 151.58 };
+    const japanSvgMapUrl = "./japan-mercator-map.svg";
+    const japanSvgMapMetaUrl = "./japan-mercator-map.json";
 
     function drawLegend(ctx, x, y) {
       const entries = [

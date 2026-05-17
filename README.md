@@ -135,3 +135,19 @@ node build-station-locations.js
 このアプリは個人利用向けの補助ツールです。防災上の判断は、気象庁や自治体など公式情報を確認してください。
 
 強震モニタ画像の転載・再配布には、提供元の利用条件を確認してください。
+## Japan map SVG
+
+The app uses `japan-mercator-map.svg` for the earthquake map base layer.
+This SVG is generated from prefecture GeoJSON after converting every polygon
+point to Web Mercator world pixels. Markers and the base map therefore use the
+same projection, zoom, scale, and top-left world pixel.
+
+To update the map asset:
+
+```powershell
+node build-japan-mercator-svg.js
+```
+
+The script writes `japan-mercator-map.svg` and `japan-mercator-map.json`.
+Do not replace it with a normal lon/lat SVG unless it is projected to Web
+Mercator first; otherwise the markers drift vertically at regional zoom levels.

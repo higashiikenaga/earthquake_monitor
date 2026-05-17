@@ -1,0 +1,15 @@
+{
+  "sourceUrl": "https://raw.githubusercontent.com/piuccio/open-data-jp-prefectures-geojson/master/output/prefectures.geojson",
+  "generatedAt": "2026-05-17T02:50:21.690Z",
+  "projection": "WebMercator",
+  "tileSize": 256,
+  "zoom": 8,
+  "simplifyTolerance": 1.2,
+  "minX": 55147.39135407571,
+  "maxX": 60800.448486952875,
+  "minY": 23430.77337367327,
+  "maxY": 28968.82652354402,
+  "width": 5653.057132877162,
+  "height": 5538.05314987075,
+  "features": 47
+}
