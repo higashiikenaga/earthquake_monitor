@@ -47,6 +47,55 @@ YouTubeへのコメント投稿はOAuth認証が必要です。ブラウザに�
 
 サンプルWorkerには、YouTubeチャンネルへ投稿できるGoogle OAuthクライアントの `GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`、`GOOGLE_REFRESH_TOKEN` を環境変数として設定してください。必要なOAuthスコープは `https://www.googleapis.com/auth/youtube.force-ssl` です。
 
+### Workerの使い方
+
+1. Google CloudでYouTube Data API v3を有効にします。
+2. OAuthクライアントを作成し、投稿に使うYouTubeアカウントで認可してRefresh Tokenを取得します。
+   - スコープは `https://www.googleapis.com/auth/youtube.force-ssl` を使います。
+   - Refresh Tokenはパスワード相当なので、GitHubやHTMLへ書かないでください。
+3. Cloudflare Workersで新しいWorkerを作成し、`youtube-live-chat-worker.js` の内容を貼り付けます。
+4. Workerの環境変数またはSecretに次の3つを設定します。
+
+```text
+GOOGLE_CLIENT_ID=Google OAuthクライアントID
+GOOGLE_CLIENT_SECRET=Google OAuthクライアントシークレット
+GOOGLE_REFRESH_TOKEN=投稿用アカウントのRefresh Token
+```
+
+5. Workerをデプロイし、発行されたURLをアプリの `コメント中継URL` に入力します。
+   - 例: `https://example.workers.dev/youtube-live-chat`
+   - GitHubへ共有する時は実URLではなく、このようなダミーURLにしてください。
+6. アプリの `YouTube Live URL` に配信URLを入力します。
+   - 既定値は `https://youtube.com/live/hjZbm3gphYA` です。
+7. `EEWをYouTubeにも自動コメントする` を有効にして、`接続` を押します。
+
+Wranglerを使う場合の例です。
+
+```powershell
+npx wrangler deploy youtube-live-chat-worker.js --name eew-youtube-relay
+npx wrangler secret put GOOGLE_CLIENT_ID
+npx wrangler secret put GOOGLE_CLIENT_SECRET
+npx wrangler secret put GOOGLE_REFRESH_TOKEN
+```
+
+デプロイ後、Workerへ直接POSTして動作確認できます。
+
+```powershell
+$body = @{
+  videoUrl = "https://youtube.com/live/hjZbm3gphYA"
+  videoId = "hjZbm3gphYA"
+  message = "テスト: EEW通知のYouTubeコメント中継"
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "https://example.workers.dev/youtube-live-chat" `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+配信が開始されていない、ライブチャットが無効、認可したアカウントに投稿権限がない、YouTube Data APIのクォータが不足している場合は投稿に失敗します。
+
 中継先には次のJSONを送ります。
 
 ```json
