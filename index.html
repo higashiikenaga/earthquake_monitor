@@ -1428,7 +1428,7 @@
 
     function drawNhkStyleQuakePanel(ctx, evt, mapData) {
       const panelWidth = 430;
-      const panelHeight = 86;
+      const panelHeight = 106;
       const x = 18;
       const y = 18;
       ctx.fillStyle = "rgba(2, 10, 24, .88)";
@@ -1442,6 +1442,7 @@
       const depth = mapData.depth !== undefined ? formatDepth(mapData.depth) : "深さ不明";
       const maxScale = mapData.maxScale || evt.scale || 0;
       const title = evt.kind === "eew" ? "緊急地震速報" : "地震発生時";
+      const timeInfo = getMapPanelTime(evt);
       const rows = [
         ["マグニチュード", magnitude],
         ["深さ", depth]
@@ -1450,10 +1451,17 @@
       ctx.font = "800 22px system-ui, sans-serif";
       ctx.fillText(title, x + 18, y + 32);
 
+      ctx.font = "700 14px system-ui, sans-serif";
+      ctx.fillStyle = "#9fb0cb";
+      ctx.fillText(timeInfo.label, x + 18, y + 56);
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "800 17px system-ui, sans-serif";
+      ctx.fillText(timeInfo.value || "時刻不明", x + 72, y + 56);
+
       ctx.font = "700 16px system-ui, sans-serif";
       rows.forEach(([label, value], i) => {
         const bx = x + 18 + i * 190;
-        const by = y + 58;
+        const by = y + 84;
         ctx.fillStyle = "#9fb0cb";
         ctx.fillText(label, bx, by);
         ctx.fillStyle = "#ffffff";
@@ -1464,7 +1472,7 @@
 
       if (maxScale) {
         const cx = x + panelWidth - 42;
-        const cy = y + 43;
+        const cy = y + 52;
         ctx.fillStyle = seismicColor(maxScale);
         ctx.strokeStyle = "rgba(255,255,255,.95)";
         ctx.lineWidth = 3;
@@ -1483,6 +1491,22 @@
         ctx.fillText(compactScaleText(maxScale), cx, cy + 1);
         ctx.restore();
       }
+    }
+
+    function getMapPanelTime(evt) {
+      if (evt.kind === "eew") {
+        return { label: "発表", value: evt.meta || getIssueTime(evt) || "" };
+      }
+      const occurrence = parseEventOccurrenceDate(evt);
+      return {
+        label: "発生",
+        value: occurrence ? formatKmoniTime(occurrence) : evt.meta || ""
+      };
+    }
+
+    function getIssueTime(evt) {
+      const raw = evt.raw || {};
+      return raw.issue?.time || raw.issue?.reportTime || raw.issue?.timeString || raw.AnnouncedTime || raw.reportTime || raw.time || "";
     }
 
     async function sendDiscordWebhook(evt) {
@@ -2420,7 +2444,7 @@
 
     function drawTsunamiAreas(ctx, proj, areas, evt = null) {
       for (const area of areas.slice(0, 18)) {
-        if (evt?.kind === "eew" && evt.eewLevel === "warning" && area.type === "eew") continue;
+        if (isEewWarningEvent(evt) && area.type === "eew") continue;
         const p = proj(area.lat, area.lon);
         const isEewArea = area.type === "eew";
         const fill = area.scale ? seismicColor(area.scale) : tsunamiGradeColor(area.grade);
@@ -2448,12 +2472,15 @@
     }
 
     function drawEewWarningAreas(ctx, proj, mapData, evt) {
-      if (evt.kind !== "eew" || evt.eewLevel !== "warning") return;
+      if (!isEewWarningEvent(evt)) return;
       const areas = (mapData.areas || []).filter((area) => area.type === "eew");
       if (areas.length === 0) return;
 
       ctx.save();
       ctx.globalCompositeOperation = "source-over";
+      // The WebSocket provides EEW warning area names, not exact polygons.
+      // We draw only those warning areas, using their mapped centers as a
+      // yellow range overlay. Forecast EEW never reaches this function.
       for (const area of areas.slice(0, 40)) {
         if (proj.isVisible && !proj.isVisible(area.lat, area.lon, 120)) continue;
         const p = proj(area.lat, area.lon);
@@ -2496,6 +2523,10 @@
         ctx.fillText(label, p.x, p.y + 1);
       }
       ctx.restore();
+    }
+
+    function isEewWarningEvent(evt) {
+      return evt?.kind === "eew" && evt.eewLevel === "warning" && !evt.raw?.cancelled;
     }
 
     function hexToRgba(color, alpha) {
