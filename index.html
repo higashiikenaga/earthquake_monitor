@@ -277,7 +277,8 @@
     body.stream-mode input[type="url"],
     body.stream-mode #discordWebhookUrl,
     body.stream-mode #wsUrl,
-    body.stream-mode #eewWsUrl {
+    body.stream-mode #eewWsUrl,
+    body.stream-mode #youtubeRelayUrl {
       filter: blur(7px);
     }
 
@@ -541,9 +542,22 @@
         <button id="discordTestBtn">Discordテスト送信</button>
         <button id="clearWebhookBtn" class="danger">Webhook URLを消去</button>
       </div>
+      <h2 style="margin-top:16px">YouTube Live Chat</h2>
+      <label>
+        コメント中継URL
+        <input id="youtubeRelayUrl" type="url" placeholder="https://example.workers.dev/youtube-live-chat" />
+      </label>
+      <label style="margin-top:12px">
+        YouTube Live URL
+        <input id="youtubeLiveUrl" type="url" value="https://youtube.com/live/hjZbm3gphYA" />
+      </label>
+      <div class="toggles">
+        <label class="toggle"><input type="checkbox" id="youtubeEnabled" /> EEWをYouTubeにも自動コメントする</label>
+      </div>
       <p class="note">
         Webhook URLはパスワードに近い扱いです。HTMLを配布したりGitHubへ置いたりする場合はURLを入れたままにしないでください。
-        公開運用では Cloudflare Workers などで中継し、DiscordのURLをブラウザに見せない構成がおすすめです。
+        公開運用では Cloudflare Workers などで中継し、DiscordやYouTubeの認証情報をブラウザに見せない構成がおすすめです。
+        YouTubeへの投稿はOAuth認証が必要なため、この画面は中継URLへEEWコメント本文を送信します。
       </p>
     </section>
 
@@ -595,10 +609,11 @@
       eewSummary: $("eewSummary"), latestQuakeSummary: $("latestQuakeSummary"), kmoniSummary: $("kmoniSummary"), latestDetail: $("latestDetail"), latestQuakeMap: $("latestQuakeMap"), quakeHistory: $("quakeHistory"), eewDetail: $("eewDetail"),
       kmoniLayer: $("kmoniLayer"), kmoniRefreshBtn: $("kmoniRefreshBtn"), kmoniImage: $("kmoniImage"), kmoniTime: $("kmoniTime"),
       minScale: $("minScale"), tsunamiMode: $("tsunamiMode"), eewMode: $("eewMode"), sound: $("sound"), dedupe: $("dedupe"), autoReconnect: $("autoReconnect"), streamMode: $("streamMode"), wsUrl: $("wsUrl"), eewWsUrl: $("eewWsUrl"),
-      discordWebhookUrl: $("discordWebhookUrl"), discordEnabled: $("discordEnabled"), discordMention: $("discordMention"), discordMapEnabled: $("discordMapEnabled"), discordTestBtn: $("discordTestBtn"), clearWebhookBtn: $("clearWebhookBtn")
+      discordWebhookUrl: $("discordWebhookUrl"), discordEnabled: $("discordEnabled"), discordMention: $("discordMention"), discordMapEnabled: $("discordMapEnabled"), discordTestBtn: $("discordTestBtn"), clearWebhookBtn: $("clearWebhookBtn"),
+      youtubeRelayUrl: $("youtubeRelayUrl"), youtubeLiveUrl: $("youtubeLiveUrl"), youtubeEnabled: $("youtubeEnabled")
     };
 
-    const settingsKeys = ["minScale", "tsunamiMode", "eewMode", "sound", "dedupe", "autoReconnect", "streamMode", "wsUrl", "eewWsUrl", "kmoniLayer", "discordWebhookUrl", "discordEnabled", "discordMention", "discordMapEnabled"];
+    const settingsKeys = ["minScale", "tsunamiMode", "eewMode", "sound", "dedupe", "autoReconnect", "streamMode", "wsUrl", "eewWsUrl", "kmoniLayer", "discordWebhookUrl", "discordEnabled", "discordMention", "discordMapEnabled", "youtubeRelayUrl", "youtubeLiveUrl", "youtubeEnabled"];
     for (const key of settingsKeys) {
       const saved = localStorage.getItem("eq_" + key);
       if (saved !== null) {
@@ -804,9 +819,11 @@
     }
 
     function normalizeP2PEvent(raw) {
-      if (!raw || typeof raw !== "object" || typeof raw.code !== "number") return null;
+      if (!raw || typeof raw !== "object") return null;
+      const code = Number(raw.code);
+      if (!Number.isFinite(code)) return null;
 
-      switch (raw.code) {
+      switch (code) {
         case 551: return normalizeQuake(raw);
         case 552: return normalizeTsunami(raw);
         case 554: return normalizeEewDetection(raw);
@@ -893,8 +910,12 @@
       if (text.includes("7")) return 70;
       if (text.includes("6強")) return 60;
       if (text.includes("6弱")) return 55;
+      if (text.includes("6+")) return 60;
+      if (text.includes("6-")) return 55;
       if (text.includes("5強")) return 50;
       if (text.includes("5弱")) return 45;
+      if (text.includes("5+")) return 50;
+      if (text.includes("5-")) return 45;
       if (text.includes("4")) return 40;
       if (text.includes("3")) return 30;
       if (text.includes("2")) return 20;
@@ -1008,7 +1029,7 @@
       if (!type) return null;
 
       if (type.includes("eew.forecast") || (type.includes("eew") && (type.includes("forecast") || type.includes("予報"))) || (type.includes("緊急地震速報") && type.includes("予報"))) {
-        return {
+        const evt = {
           id: raw.id || raw.eventId || Date.now() + "-forecast",
           kind: "eew",
           title: raw.title || "緊急地震速報（予報）",
@@ -1018,9 +1039,10 @@
           eewLevel: "forecast",
           raw
         };
+        return enrichCustomEew(evt);
       }
       if (type.includes("eew.warning") || (type.includes("eew") && (type.includes("warning") || type.includes("警報"))) || (type.includes("緊急地震速報") && type.includes("警報"))) {
-        return {
+        const evt = {
           id: raw.id || raw.eventId || Date.now() + "-warning",
           kind: "eew",
           title: raw.title || "緊急地震速報（警報）",
@@ -1030,6 +1052,22 @@
           eewLevel: "warning",
           raw
         };
+        return enrichCustomEew(evt);
+      }
+      if (type.includes("eew") || type.includes("緊急地震速報")) {
+        const eewLevel = detectEewLevel(raw);
+        const eewLabel = eewLevel === "warning" ? "警報" : "予報";
+        const evt = {
+          id: raw.id || raw.eventId || raw.EventID || Date.now() + "-eew",
+          kind: "eew",
+          title: raw.title || `緊急地震速報（${eewLabel}）`,
+          badge: `EEW${eewLabel}`,
+          body: raw.body || raw.message || JSON.stringify(raw, null, 2),
+          meta: raw.time || raw.issueTime || raw.AnnouncedTime || raw.issue?.time || "",
+          eewLevel,
+          raw
+        };
+        return enrichCustomEew(evt);
       }
       if (type.includes("tsunami")) {
         return {
@@ -1056,6 +1094,19 @@
         };
       }
       return null;
+    }
+
+    function enrichCustomEew(evt) {
+      const facts = getEventFacts(evt);
+      const detail = [
+        facts.hypocenter ? `震源: ${facts.hypocenter}` : "",
+        facts.magnitude ? `規模: ${facts.magnitude}` : "",
+        facts.depth ? `深さ: ${facts.depth}` : "",
+        facts.maxIntensity ? `予測最大震度: ${facts.maxIntensity}` : ""
+      ].filter(Boolean).join("\n");
+      if (detail && (!evt.body || evt.body.startsWith("{"))) evt.body = detail;
+      if (facts.maxIntensity && !evt.title.includes("震度")) evt.title += ` 予測最大震度${facts.maxIntensity}`;
+      return evt;
     }
 
     function shouldNotify(evt) {
@@ -1130,6 +1181,7 @@
       if (notify) {
         sendNotification(evt);
         if (els.discordEnabled.checked) sendDiscordWebhook(evt);
+        if (evt.kind === "eew" && els.youtubeEnabled.checked) sendYoutubeLiveComment(evt);
       }
     }
 
@@ -1155,7 +1207,7 @@
     }
 
     function updateDashboard() {
-      els.eewSummary.textContent = state.lastEew ? `${state.lastEew.badge || "EEW"} / ${state.lastEew.meta || "時刻不明"}` : "受信なし";
+      els.eewSummary.textContent = state.lastEew ? formatEewSummary(state.lastEew) : "受信なし";
       els.eewDetail.textContent = state.lastEew ? formatDashboardDetail(state.lastEew) : "緊急地震速報は受信していません。";
       els.latestQuakeSummary.textContent = state.latestQuake ? `${state.latestQuake.badge || "地震"} / ${state.latestQuake.meta || "時刻不明"}` : "受信なし";
       els.latestDetail.textContent = state.latestQuake ? formatDashboardDetail(state.latestQuake) : "まだ地震情報を受信していません。";
@@ -1198,12 +1250,70 @@
     }
 
     function formatDashboardDetail(evt) {
+      const facts = formatEventFacts(evt);
       return [
         evt.title,
+        facts,
         evt.meta ? `発表時刻: ${evt.meta}` : "",
         evt.badge ? `種別: ${evt.badge}` : "",
         evt.body
       ].filter(Boolean).join("\n");
+    }
+
+    function formatEewSummary(evt) {
+      const facts = getEventFacts(evt);
+      return [
+        evt.badge || "EEW",
+        facts.hypocenter || "震源不明",
+        facts.maxIntensity ? `最大予想震度${facts.maxIntensity}` : "最大予想震度不明",
+        facts.magnitude || "M調査中"
+      ].join(" / ");
+    }
+
+    function formatEventFacts(evt) {
+      const facts = getEventFacts(evt);
+      return [
+        facts.hypocenter ? `震源: ${facts.hypocenter}` : "",
+        facts.maxIntensity ? `${evt.kind === "eew" ? "最大予想震度" : "最大震度"}: ${facts.maxIntensity}` : "",
+        facts.magnitude ? `マグニチュード: ${facts.magnitude}` : "",
+        facts.depth ? `深さ: ${facts.depth}` : ""
+      ].filter(Boolean).join("\n");
+    }
+
+    function getEventFacts(evt) {
+      const raw = evt.raw || {};
+      const hypo = raw.earthquake?.hypocenter || raw.hypocenter || {};
+      const magnitude = firstValue(
+        hypo.magnitude, raw.magnitude, raw.Magnitude, raw.Magunitude, raw.mag,
+        raw.earthquake?.magnitude
+      );
+      const depth = firstValue(hypo.depth, raw.depth, raw.Depth, raw.earthquake?.depth);
+      const maxScale = firstValue(
+        evt.kind === "eew" ? raw.earthquake?.maxScale : evt.scale,
+        raw.maxScale, raw.MaxScale, raw.maxIntensity, raw.MaxIntensity,
+        raw.earthquake?.maxScale, raw.scale
+      );
+      const hypocenter = firstValue(
+        hypo.name, raw.hypocenterName, raw.Hypocenter, raw.hypocenter,
+        raw.epicenter, raw.name, raw.region
+      );
+      return {
+        hypocenter: hypocenter ? String(hypocenter) : "",
+        maxIntensity: formatIntensityValue(maxScale),
+        magnitude: formatMagnitude(magnitude),
+        depth: depth === undefined || depth === null || depth === "" ? "" : formatDepth(depth)
+      };
+    }
+
+    function firstValue(...values) {
+      return values.find((value) => value !== undefined && value !== null && value !== "");
+    }
+
+    function formatIntensityValue(value) {
+      if (value === undefined || value === null || value === "") return "";
+      const scale = intensityTextToScale(value);
+      if (scale) return scaleText(scale);
+      return String(value);
     }
 
     async function drawLatestQuakeMap(evt) {
@@ -1286,6 +1396,12 @@
       const isUrgent = evt.kind === "eew" || evt.kind === "tsunami";
       const mention = els.discordMention.checked && isUrgent ? "@everyone " : "";
       const color = evt.raw?.kmoniDetection ? 0xf2cc60 : evt.kind === "eew" ? 0xff6b6b : evt.kind === "tsunami" ? 0x73d2de : evt.kind === "quake" ? 0xf2cc60 : 0x56d364;
+      const facts = getEventFacts(evt);
+      const factFields = [
+        facts.hypocenter ? { name: "震源", value: facts.hypocenter, inline: true } : null,
+        facts.maxIntensity ? { name: evt.kind === "eew" ? "最大予想震度" : "最大震度", value: facts.maxIntensity, inline: true } : null,
+        facts.magnitude ? { name: "マグニチュード", value: facts.magnitude, inline: true } : null
+      ].filter(Boolean);
 
       const payload = {
         username: "地震通知",
@@ -1298,7 +1414,8 @@
           timestamp: new Date().toISOString(),
           fields: [
             { name: "種別", value: evt.badge || evt.kind, inline: true },
-            { name: "発表時刻", value: String(evt.meta || "不明"), inline: true }
+            { name: "発表時刻", value: String(evt.meta || "不明"), inline: true },
+            ...factFields
           ],
           footer: { text: "Earthquake Taskbar Notifier" }
         }]
@@ -1337,6 +1454,64 @@
       } catch (error) {
         console.error(error);
         addLocalNotice("Discord送信エラー", String(error.message || error));
+      }
+    }
+
+    async function sendYoutubeLiveComment(evt) {
+      const url = els.youtubeRelayUrl.value.trim();
+      if (!url) {
+        addLocalNotice("YouTube送信エラー", "コメント中継URLを入力してください。");
+        return;
+      }
+
+      const message = formatYoutubeComment(evt);
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            videoUrl: els.youtubeLiveUrl.value.trim(),
+            videoId: extractYoutubeVideoId(els.youtubeLiveUrl.value.trim()),
+            message,
+            event: {
+              id: evt.id,
+              kind: evt.kind,
+              title: evt.title,
+              badge: evt.badge,
+              meta: evt.meta,
+              facts: getEventFacts(evt),
+              raw: evt.raw
+            }
+          })
+        });
+        if (!res.ok) throw new Error(`YouTube中継送信失敗: HTTP ${res.status}`);
+      } catch (error) {
+        console.error(error);
+        addLocalNotice("YouTube送信エラー", String(error.message || error));
+      }
+    }
+
+    function formatYoutubeComment(evt) {
+      const facts = getEventFacts(evt);
+      return [
+        evt.title,
+        facts.hypocenter ? `震源: ${facts.hypocenter}` : "",
+        facts.maxIntensity ? `${evt.kind === "eew" ? "最大予想震度" : "最大震度"}: ${facts.maxIntensity}` : "",
+        facts.magnitude ? `M: ${facts.magnitude.replace(/^M/, "")}` : "",
+        evt.meta ? `発表: ${evt.meta}` : ""
+      ].filter(Boolean).join(" / ");
+    }
+
+    function extractYoutubeVideoId(url) {
+      const text = String(url || "").trim();
+      if (!text) return "";
+      try {
+        const parsed = new URL(text);
+        if (parsed.hostname.includes("youtu.be")) return parsed.pathname.split("/").filter(Boolean)[0] || "";
+        if (parsed.pathname.startsWith("/live/")) return parsed.pathname.split("/").filter(Boolean)[1] || "";
+        return parsed.searchParams.get("v") || "";
+      } catch {
+        return text;
       }
     }
 
@@ -1564,7 +1739,7 @@
         let lat = parseCoordinate(point.latitude ?? point.lat, "lat");
         let lon = parseCoordinate(point.longitude ?? point.lon ?? point.lng, "lon");
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-          const center = findAreaCenter(point.addr || point.pref || point.name || point.area || "");
+          const center = findPointAreaCenter(point);
           if (center) {
             lat = center.lat;
             lon = center.lon;
@@ -1614,11 +1789,47 @@
       return n;
     }
 
+    function findPointAreaCenter(point) {
+      const pref = String(point.pref || "").trim();
+      if (pref) {
+        const exactPref = areaCenters[pref] || areaCenters[`${pref}県`] || areaCenters[`${pref}府`] || areaCenters[`${pref}都`] || areaCenters[`${pref}道`];
+        if (exactPref) return exactPref;
+      }
+
+      const area = String(point.area || "").trim();
+      if (area) {
+        const exactArea = areaCenters[area] || tsunamiAreaCenters[area];
+        if (exactArea) return exactArea;
+      }
+
+      const name = String(point.name || point.addr || "").trim();
+      if (!name) return null;
+      const normalized = normalizeObservationLabel(name);
+      const exactName = areaCenters[normalized] || tsunamiAreaCenters[normalized];
+      if (exactName) return exactName;
+
+      const prefMatch = normalized.match(/(北海道|東京都|大阪府|京都府|.{2,3}県)/);
+      if (prefMatch && areaCenters[prefMatch[1]]) return areaCenters[prefMatch[1]];
+      return null;
+    }
+
+    function normalizeObservationLabel(value) {
+      return String(value || "")
+        .replace(/\s+/g, "")
+        .replace(/\d+$/, "")
+        .replace(/震度[0-9弱強]+$/, "")
+        .replace(/[（(].*?[）)]/g, "");
+    }
+
     function findAreaCenter(areaName) {
       if (!areaName) return null;
+      const exact = areaCenters[areaName] || tsunamiAreaCenters[areaName];
+      if (exact) return exact;
       const key = Object.keys(areaCenters).find((name) => {
         const short = name.replace(/[都道府県]$/, "");
-        return areaName.includes(short) || areaName.includes(name) || name.includes(areaName.replace(/地方|北部|南部|東部|西部|中部|沿岸|沖|近海/g, ""));
+        const normalized = areaName.replace(/地方|北部|南部|東部|西部|中部|沿岸|沖|近海/g, "");
+        if (normalized.length < 3 && !/[都道府県]$/.test(areaName)) return false;
+        return areaName.includes(name) || name.includes(normalized) || (areaName.endsWith("県") && areaName.includes(short));
       });
       return key ? areaCenters[key] : null;
     }

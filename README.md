@@ -11,6 +11,7 @@
 - 地震・EEW・津波・強震モニタ検知のブラウザ通知
 - Discord Webhook通知
 - Discord通知への地図画像添付
+- YouTube Live Chat中継URLへのEEW自動コメント送信
 - 最新地震情報への震度地図表示
 - OBSなどの配信用にURLやWebhook設定を隠す配信モード
 - PWA対応
@@ -37,6 +38,25 @@ http://localhost:8000/
 右側のDiscord Webhook欄にWebhook URLを入力し、`Discordにも送信する` を有効にすると通知が送信されます。
 
 Webhook URLはパスワードに近い扱いです。公開リポジトリへ実際のWebhook URLを入れたまま保存しないでください。
+
+## YouTube Live Chat
+
+YouTubeへのコメント投稿はOAuth認証が必要です。ブラウザに認証情報を保存せず、Cloudflare Workersなどの中継URLを使ってください。
+
+画面右側の `コメント中継URL` に中継先を入力し、`EEWをYouTubeにも自動コメントする` を有効にすると、EEW受信時に震源・最大予想震度・マグニチュードを含むJSONをPOSTします。サンプル実装は `youtube-live-chat-worker.js` です。
+
+サンプルWorkerには、YouTubeチャンネルへ投稿できるGoogle OAuthクライアントの `GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`、`GOOGLE_REFRESH_TOKEN` を環境変数として設定してください。必要なOAuthスコープは `https://www.googleapis.com/auth/youtube.force-ssl` です。
+
+中継先には次のJSONを送ります。
+
+```json
+{
+  "videoUrl": "https://youtube.com/live/hjZbm3gphYA",
+  "videoId": "hjZbm3gphYA",
+  "message": "緊急地震速報（予報） / 震源: ... / 最大予想震度: ... / M: ...",
+  "event": {}
+}
+```
 
 ## 配信モード
 
