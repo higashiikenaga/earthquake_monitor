@@ -1,4 +1,8 @@
 @echo off
 cd /d "%~dp0"
-python obs-alert-sound.py
+if exist "dist\EarthquakeAlertSound.exe" (
+  "dist\EarthquakeAlertSound.exe"
+) else (
+  python obs-alert-sound.py
+)
 pause

@@ -1,6 +1,6 @@
 # OBS alert sound capture
 
-`obs-alert-sound.py` is a small local sound app for OBS.
+`EarthquakeAlertSound.exe` is a small local sound app for OBS.
 
 The browser app normally plays alert tones inside the browser. If OBS captures
 the browser's application audio, unrelated browser audio such as YouTube can be
@@ -12,7 +12,7 @@ Python process.
 1. Start the helper:
 
    ```powershell
-   python obs-alert-sound.py
+   .\dist\EarthquakeAlertSound.exe
    ```
 
    Or double-click `start_obs_alert_sound.bat`.
@@ -22,8 +22,8 @@ Python process.
    - `通知音を鳴らす`
    - `OBS向け専用音声アプリを使う`
 
-3. In OBS, add or configure Application Audio Capture and select the Python
-   process running `obs-alert-sound.py`.
+3. In OBS, add or configure Application Audio Capture and select
+   `EarthquakeAlertSound.exe`.
 
 4. Do not capture the browser audio if you want to avoid YouTube or other tab
    audio.
@@ -37,3 +37,13 @@ POST http://127.0.0.1:18765/play
 The browser sends the same tone pattern it would normally play with Web Audio.
 If the helper is not running while external sound is enabled, the browser does
 not play a fallback tone; it shows a local notice instead.
+
+## Rebuild the EXE
+
+If you edit `obs-alert-sound.py`, rebuild the executable with:
+
+```powershell
+python -m PyInstaller --onefile --clean --name EarthquakeAlertSound obs-alert-sound.py
+```
+
+Or double-click `build_obs_alert_sound_exe.bat`.
