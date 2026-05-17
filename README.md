@@ -116,6 +116,19 @@ Invoke-RestMethod `
 - P2P地震情報: `wss://api.p2pquake.net/v2/ws`
 - Wolfx JMA EEW: `wss://ws-api.wolfx.jp/jma_eew`
 - 強震モニタ: `http://www.kmoni.bosai.go.jp/`
+- 気象庁震度観測点一覧表: `station-locations.json` の生成元
+
+## 震度観測点マスタの更新
+
+地震情報の地図は、P2P地震情報の観測点に緯度経度が無い場合、同梱の `station-locations.json` で気象庁震度観測点の座標を補完します。
+
+観測点マスタを更新する場合は、ネットワーク接続がある環境で次を実行してください。
+
+```powershell
+node build-station-locations.js
+```
+
+このスクリプトは気象庁の震度観測点一覧表から、観測終了していない観測点だけを抽出して `station-locations.json` を作成します。
 
 ## 注意
 

@@ -599,6 +599,7 @@
       kmoniNextTimer: null,
       kmoniLastAlert: { level: "", time: 0 },
       japanSvgMapPromise: null,
+      stationLocations: null,
       seen: new Set(JSON.parse(localStorage.getItem("eq_seen_ids") || "[]")),
       maxSeen: 300,
     };
@@ -629,6 +630,7 @@
     updateNotificationStatus();
     applyStreamMode();
     updateDashboard();
+    loadStationLocations();
     loadInitialQuakeHistory();
     updateKmoniImage(true);
 
@@ -1143,6 +1145,21 @@
         empty.className = "historyMeta";
         empty.textContent = `履歴を読み込めませんでした: ${error.message || error}`;
         els.quakeHistory.replaceChildren(empty);
+      }
+    }
+
+    async function loadStationLocations() {
+      try {
+        const res = await fetch("./station-locations.json", { cache: "no-cache" });
+        if (!res.ok) return;
+        const data = await res.json();
+        state.stationLocations = data && typeof data === "object" ? data : null;
+        if (state.latestQuake) {
+          state.latestQuake.raw = state.latestQuake.raw;
+          updateDashboard();
+        }
+      } catch (error) {
+        console.warn("station locations load error", error);
       }
     }
 
@@ -1747,14 +1764,23 @@
 
     function normalizeMapPoints(points) {
       if (!Array.isArray(points)) return [];
+      const fallbackCounts = new Map();
       const mapped = points.map((point, index) => {
-        const jmaRegion = findPointJmaRegion(point);
+        const station = findStationLocation(point);
+        const jmaRegion = station ? null : findPointJmaRegion(point);
         let lat = parseCoordinate(point.latitude ?? point.lat, "lat");
         let lon = parseCoordinate(point.longitude ?? point.lon ?? point.lng, "lon");
+        if ((!Number.isFinite(lat) || !Number.isFinite(lon)) && station) {
+          lat = station.lat;
+          lon = station.lon;
+        }
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
           const center = jmaRegion || findPointAreaCenter(point);
           if (center) {
-            const offset = deterministicPointOffset(point, index);
+            const fallbackKey = jmaRegion ? `${jmaRegion.pref}:${jmaRegion.name}` : String(point.pref || point.area || "area");
+            const fallbackIndex = fallbackCounts.get(fallbackKey) || 0;
+            fallbackCounts.set(fallbackKey, fallbackIndex + 1);
+            const offset = fallbackGridOffset(fallbackIndex);
             lat = center.lat + offset.lat;
             lon = center.lon + offset.lon;
           }
@@ -1786,6 +1812,31 @@
       return [...groups.values()].filter((point) => Number(point.scale || 0) > 0);
     }
 
+    function findStationLocation(point) {
+      const stations = state.stationLocations;
+      if (!stations) return null;
+      const pref = String(point.pref || "").trim();
+      const rawNames = [
+        point.addr,
+        point.name,
+        point.area
+      ].filter(Boolean).map((value) => String(value).trim());
+      const names = rawNames.flatMap((name) => [name, normalizeObservationLabel(name)]);
+      for (const name of names) {
+        const keys = [
+          pref && `${pref}|${name}`,
+          name
+        ].filter(Boolean);
+        for (const key of keys) {
+          const station = stations[key];
+          if (station && Number.isFinite(Number(station.lat)) && Number.isFinite(Number(station.lon))) {
+            return { lat: Number(station.lat), lon: Number(station.lon) };
+          }
+        }
+      }
+      return null;
+    }
+
     function findPointJmaRegion(point) {
       const source = normalizeObservationLabel([point.pref, point.area, point.label].filter(Boolean).join(""));
       const pref = String(point.pref || extractPrefectureName(source) || "").trim();
@@ -1797,15 +1848,15 @@
       return jmaSeismicRegions.find((region) => region.name === regionName || `${region.pref}:${region.name}` === regionName) || null;
     }
 
-    function deterministicPointOffset(point, index) {
-      const seed = String(point.addr || point.name || point.area || point.pref || index);
-      let hash = 0;
-      for (let i = 0; i < seed.length; i += 1) hash = ((hash << 5) - hash + seed.charCodeAt(i)) | 0;
-      const angle = ((Math.abs(hash) % 360) / 180) * Math.PI;
-      const radius = 0.05 + ((Math.abs(hash >> 8) % 10) / 100);
+    function fallbackGridOffset(index) {
+      const cols = 5;
+      const spacingLat = 0.18;
+      const spacingLon = 0.22;
+      const col = index % cols;
+      const row = Math.floor(index / cols);
       return {
-        lat: Math.sin(angle) * radius,
-        lon: Math.cos(angle) * radius
+        lat: (row - 1) * spacingLat,
+        lon: (col - 2) * spacingLon
       };
     }
 
