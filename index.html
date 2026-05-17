@@ -552,12 +552,12 @@
         <input id="youtubeLiveUrl" type="url" value="https://youtube.com/live/hjZbm3gphYA" />
       </label>
       <div class="toggles">
-        <label class="toggle"><input type="checkbox" id="youtubeEnabled" /> EEWをYouTubeにも自動コメントする</label>
+        <label class="toggle"><input type="checkbox" id="youtubeEnabled" /> 地震・EEWをYouTubeにも自動コメントする</label>
       </div>
       <p class="note">
         Webhook URLはパスワードに近い扱いです。HTMLを配布したりGitHubへ置いたりする場合はURLを入れたままにしないでください。
         公開運用では Cloudflare Workers などで中継し、DiscordやYouTubeの認証情報をブラウザに見せない構成がおすすめです。
-        YouTubeへの投稿はOAuth認証が必要なため、この画面は中継URLへEEWコメント本文を送信します。
+        YouTubeへの投稿はOAuth認証が必要なため、この画面は中継URLへ地震・EEWコメント本文を送信します。
       </p>
     </section>
 
@@ -1233,7 +1233,7 @@
       if (notify) {
         sendNotification(evt);
         if (els.discordEnabled.checked) sendDiscordWebhook(evt);
-        if (evt.kind === "eew" && els.youtubeEnabled.checked) sendYoutubeLiveComment(evt);
+        if ((evt.kind === "eew" || evt.kind === "quake") && els.youtubeEnabled.checked) sendYoutubeLiveComment(evt);
       }
     }
 
@@ -1660,9 +1660,27 @@
         facts.hypocenter ? `震源: ${facts.hypocenter}` : "",
         facts.maxIntensity ? `${evt.kind === "eew" ? "最大予想震度" : "最大震度"}: ${facts.maxIntensity}` : "",
         facts.magnitude ? `M: ${facts.magnitude.replace(/^M/, "")}` : "",
+        facts.depth ? `深さ: ${facts.depth}` : "",
         evt.kind === "eew" ? formatEewAreaList(evt, 8).replace(/\n/g, " / ") : "",
+        evt.kind === "quake" ? formatYoutubeObservationList(evt, 6) : "",
         evt.meta ? `発表: ${evt.meta}` : ""
       ].filter(Boolean).join(" / ");
+    }
+
+    function formatYoutubeObservationList(evt, limit = 6) {
+      const points = Array.isArray(evt.raw?.points) ? evt.raw.points : [];
+      const top = points
+        .filter((point) => Number(point.scale || point.maxScale || 0) > 0)
+        .sort((a, b) => Number(b.scale || b.maxScale || 0) - Number(a.scale || a.maxScale || 0))
+        .slice(0, limit);
+      if (top.length === 0) return "";
+      const text = top.map((point) => {
+        const scale = point.scale || point.maxScale;
+        const name = point.addr || point.name || point.pref || "不明";
+        return `${name} 震度${scaleText(scale)}`;
+      }).join("、");
+      const suffix = points.length > limit ? ` ほか${points.length - limit}地点` : "";
+      return `観測: ${text}${suffix}`;
     }
 
     function formatEewAreaList(evt, limit = 12) {
@@ -1697,9 +1715,13 @@
     }
 
     function getKmoniDateForEvent(evt) {
+      const latest = [state.lastKmoniOkDate, state.kmoniDate]
+        .filter((date) => date instanceof Date && !Number.isNaN(date.getTime()))
+        .sort((a, b) => b.getTime() - a.getTime())[0];
+      if (latest && Date.now() - latest.getTime() < 60000) return new Date(latest);
       const eventDate = parseEventOccurrenceDate(evt);
-      if (eventDate) return new Date(eventDate.getTime() + 8000);
-      return null;
+      if (eventDate && eventDate.getSeconds() > 0) return new Date(eventDate.getTime() + 8000);
+      return new Date(Date.now() - 12000);
     }
 
     function parseEventOccurrenceDate(evt) {
@@ -1876,7 +1898,7 @@
       canvas.width = 960;
       canvas.height = 620;
       const ctx = canvas.getContext("2d");
-      const proj = createMapProjection(canvas.width, canvas.height, mapData);
+      const proj = createMapProjection(canvas.width, canvas.height, mapData, { focusMode: "overview" });
       logMapDebug("discord-map", proj, mapData);
 
       drawMapBackground(ctx, canvas.width, canvas.height, proj);
@@ -2123,8 +2145,8 @@
       return key ? areaCenters[key] : null;
     }
 
-    function createMapProjection(width, height, mapData) {
-      const bounds = buildMapBounds(mapData, width, height);
+    function createMapProjection(width, height, mapData, options = {}) {
+      const bounds = buildMapBounds(mapData, width, height, options);
       const pad = bounds.focused
         ? { left: 18, right: 18, top: 18, bottom: 18 }
         : { left: 64, right: 48, top: 34, bottom: 42 };
@@ -2197,9 +2219,18 @@
       return Math.min(max, Math.max(min, Number(value)));
     }
 
-    function buildMapBounds(mapData, width, height) {
+    function buildMapBounds(mapData, width, height, options = {}) {
       const base = { minLat: 23.0, maxLat: 46.5, minLon: 122.0, maxLon: 148.5 };
-      const focusCoords = getMapFocusCoords(mapData);
+      if (options.bounds) {
+        return {
+          minLat: options.bounds.minLat,
+          maxLat: options.bounds.maxLat,
+          minLon: options.bounds.minLon,
+          maxLon: options.bounds.maxLon,
+          focused: Boolean(options.focused)
+        };
+      }
+      const focusCoords = getMapFocusCoords(mapData, options.focusMode);
       const coords = [];
       if (mapData.hasLocation) coords.push({ lat: mapData.lat, lon: mapData.lon });
       coords.push(...focusCoords.points, ...focusCoords.areas);
@@ -2243,9 +2274,10 @@
       return bounds;
     }
 
-    function getMapFocusCoords(mapData) {
+    function getMapFocusCoords(mapData, focusMode = "auto") {
       const points = Array.isArray(mapData.points) ? mapData.points : [];
       const areas = Array.isArray(mapData.areas) ? mapData.areas : [];
+      if (focusMode === "overview") return { points, areas, zoomed: false };
 
       if (points.length === 0) {
         if (!mapData.hasLocation) return { points, areas, zoomed: false };
@@ -2694,7 +2726,10 @@
         areas: [],
         hasLocation: true
       };
-      const project = createMapProjection(width, height, insetData);
+      const project = createMapProjection(width, height, insetData, {
+        bounds: { minLat, maxLat, minLon, maxLon },
+        focused: true
+      });
       const baseProject = project;
       const projectWithOffset = (lat, lon) => {
         const p = baseProject(lat, lon);
@@ -2726,8 +2761,8 @@
       await drawJapanSvgBaseMap(ctx, projectWithOffset, () => drawJapanBaseMap(ctx, projectWithOffset));
       drawRemoteIslandLabels(ctx, projectWithOffset);
       drawReferenceLabels(ctx, projectWithOffset);
-      drawObservationPoints(ctx, projectWithOffset, mapData.points);
-      drawObservationLabels(ctx, projectWithOffset, mapData.points);
+      drawObservationPoints(ctx, projectWithOffset, insetData.points);
+      drawObservationLabels(ctx, projectWithOffset, insetData.points);
       drawEpicenter(ctx, projectWithOffset, mapData, accentColor);
       ctx.restore();
 
