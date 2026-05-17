@@ -1900,8 +1900,9 @@
       const hypo = raw.earthquake?.hypocenter || raw.hypocenter || {};
       const lat = parseCoordinate(hypo.latitude ?? hypo.lat ?? raw.latitude ?? raw.lat, "lat");
       const lon = parseCoordinate(hypo.longitude ?? hypo.lon ?? hypo.lng ?? raw.longitude ?? raw.lon ?? raw.lng, "lon");
+      const hasLocation = isValidMapCoordinate(lat, lon);
       return {
-        hasLocation: Number.isFinite(lat) && Number.isFinite(lon),
+        hasLocation,
         lat,
         lon,
         name: hypo.name || raw.hypocenterName || raw.name || "",
@@ -1936,7 +1937,7 @@
             lon = center.lon + offset.lon;
           }
         }
-        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+        if (!isValidMapCoordinate(lat, lon)) return null;
         return {
           lat,
           lon,
@@ -2037,7 +2038,7 @@
         const areaName = area.name || area.area || area.pref || "";
         const lat = parseCoordinate(area.latitude ?? area.lat, "lat");
         const lon = parseCoordinate(area.longitude ?? area.lon ?? area.lng, "lon");
-        const center = Number.isFinite(lat) && Number.isFinite(lon)
+        const center = isValidMapCoordinate(lat, lon)
           ? { lat, lon }
           : tsunamiAreaCenters[areaName] || areaCenters[areaName] || findAreaCenter(areaName);
         if (!center) return null;
@@ -2062,7 +2063,18 @@
       const lower = text.toLowerCase();
       if (axis === "lat" && (text.includes("南緯") || lower.includes("s"))) n = -Math.abs(n);
       if (axis === "lon" && (text.includes("西経") || lower.includes("w"))) n = -Math.abs(n);
+      if (axis === "lat" && (n < -85.05112878 || n > 85.05112878)) return NaN;
+      if (axis === "lon" && (n < -180 || n > 180)) return NaN;
       return n;
+    }
+
+    function isValidMapCoordinate(lat, lon) {
+      return Number.isFinite(lat)
+        && Number.isFinite(lon)
+        && lat >= -85.05112878
+        && lat <= 85.05112878
+        && lon >= -180
+        && lon <= 180;
     }
 
     function findPointAreaCenter(point) {
@@ -2234,7 +2246,18 @@
     function getMapFocusCoords(mapData) {
       const points = Array.isArray(mapData.points) ? mapData.points : [];
       const areas = Array.isArray(mapData.areas) ? mapData.areas : [];
-      if (!mapData.hasLocation || points.length === 0) return { points, areas, zoomed: false };
+
+      if (points.length === 0) {
+        if (!mapData.hasLocation) return { points, areas, zoomed: false };
+        const nearbyAreas = areas.length > 0
+          ? areas.filter((area) => distanceToEpicenter(area, mapData) <= 7).slice(0, 40)
+          : [];
+        return {
+          points: [{ lat: mapData.lat, lon: mapData.lon, scale: mapData.maxScale || 0 }],
+          areas: nearbyAreas,
+          zoomed: true
+        };
+      }
 
       const maxScale = points.reduce((max, point) => Math.max(max, Number(point.scale || 0)), 0);
       if (!maxScale) return { points, areas, zoomed: false };
@@ -2243,7 +2266,9 @@
       let focusedPoints = points.filter((point) => Number(point.scale || 0) >= threshold);
       if (points.length >= 25 && focusedPoints.length > 70) {
         focusedPoints = [...focusedPoints]
-          .sort((a, b) => distanceToEpicenter(a, mapData) - distanceToEpicenter(b, mapData))
+          .sort((a, b) => mapData.hasLocation
+            ? distanceToEpicenter(a, mapData) - distanceToEpicenter(b, mapData)
+            : Number(b.scale || 0) - Number(a.scale || 0))
           .slice(0, 70);
       }
       if (focusedPoints.length === 0) return { points, areas, zoomed: false };
