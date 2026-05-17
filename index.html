@@ -1668,14 +1668,13 @@
     }
 
     function shouldAttachKmoni(evt) {
-      return evt.kind === "quake" || evt.kind === "eew" || evt.raw?.kmoniDetection;
+      return evt.kind === "quake" && Boolean(parseEventOccurrenceDate(evt));
     }
 
     function getKmoniDateForEvent(evt) {
-      if (evt.raw?.kmoniDetection && evt.meta) return parseDateLike(evt.meta) || state.lastKmoniOkDate || new Date(Date.now() - 12000);
       const eventDate = parseEventOccurrenceDate(evt);
       if (eventDate) return new Date(eventDate.getTime() + 8000);
-      return state.lastKmoniOkDate || new Date(Date.now() - 12000);
+      return null;
     }
 
     function parseEventOccurrenceDate(evt) {
