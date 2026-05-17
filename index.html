@@ -1348,6 +1348,7 @@
 
       const mapData = extractMapData(evt);
       const proj = createMapProjection(canvas.width, canvas.height, mapData);
+      logMapDebug("latest-quake", proj, mapData);
       drawMapBackground(ctx, canvas.width, canvas.height, proj);
       await drawJapanSvgBaseMap(ctx, proj, () => drawJapanBaseMap(ctx, proj));
       drawReferenceLabels(ctx, proj);
@@ -1729,6 +1730,7 @@
       canvas.height = 620;
       const ctx = canvas.getContext("2d");
       const proj = createMapProjection(canvas.width, canvas.height, mapData);
+      logMapDebug("discord-map", proj, mapData);
 
       drawMapBackground(ctx, canvas.width, canvas.height, proj);
       await drawJapanSvgBaseMap(ctx, proj, () => drawJapanBaseMap(ctx, proj));
@@ -1965,17 +1967,67 @@
       const pad = { left: 64, right: 48, top: 34, bottom: 42 };
       const usableWidth = width - pad.left - pad.right;
       const usableHeight = height - pad.top - pad.bottom;
+      const tileSize = 256;
+      const zoom = chooseMercatorZoom(bounds, usableWidth, usableHeight, tileSize);
+      const northWest = latLonToWorldPixel(bounds.maxLat, bounds.minLon, zoom, tileSize);
+      const southEast = latLonToWorldPixel(bounds.minLat, bounds.maxLon, zoom, tileSize);
+      const worldWidth = Math.max(1, southEast.x - northWest.x);
+      const worldHeight = Math.max(1, southEast.y - northWest.y);
+      const scale = Math.min(usableWidth / worldWidth, usableHeight / worldHeight);
+      const drawWidth = worldWidth * scale;
+      const drawHeight = worldHeight * scale;
+      const offsetX = pad.left + (usableWidth - drawWidth) / 2;
+      const offsetY = pad.top + (usableHeight - drawHeight) / 2;
       const project = (lat, lon) => {
-        const x = pad.left + ((lon - bounds.minLon) / (bounds.maxLon - bounds.minLon)) * usableWidth;
-        const y = pad.top + ((bounds.maxLat - lat) / (bounds.maxLat - bounds.minLat)) * usableHeight;
+        const world = latLonToWorldPixel(lat, lon, zoom, tileSize);
+        const x = offsetX + (world.x - northWest.x) * scale;
+        const y = offsetY + (world.y - northWest.y) * scale;
         return { x, y };
       };
       project.bounds = bounds;
+      project.zoom = zoom;
+      project.tileSize = tileSize;
+      project.topLeftWorld = northWest;
+      project.cropOrigin = northWest;
+      project.resizeScale = scale;
+      project.center = {
+        lat: (bounds.minLat + bounds.maxLat) / 2,
+        lon: (bounds.minLon + bounds.maxLon) / 2
+      };
+      project.worldPixel = (lat, lon) => latLonToWorldPixel(lat, lon, zoom, tileSize);
+      project.debugPoint = (point) => {
+        const world = project.worldPixel(point.lat, point.lon);
+        const final = project(point.lat, point.lon);
+        return { lat: point.lat, lon: point.lon, scale: point.scale, world, final };
+      };
       project.isVisible = (lat, lon, margin = 18) => {
         const p = project(lat, lon);
         return p.x >= -margin && p.x <= width + margin && p.y >= -margin && p.y <= height + margin;
       };
       return project;
+    }
+
+    function chooseMercatorZoom(bounds, usableWidth, usableHeight, tileSize = 256) {
+      const nw0 = latLonToWorldPixel(bounds.maxLat, bounds.minLon, 0, tileSize);
+      const se0 = latLonToWorldPixel(bounds.minLat, bounds.maxLon, 0, tileSize);
+      const spanX0 = Math.max(1e-6, se0.x - nw0.x);
+      const spanY0 = Math.max(1e-6, se0.y - nw0.y);
+      const zoomX = Math.log2(usableWidth / spanX0);
+      const zoomY = Math.log2(usableHeight / spanY0);
+      return Math.max(0, Math.min(18, Math.floor(Math.min(zoomX, zoomY))));
+    }
+
+    function latLonToWorldPixel(lat, lon, zoom, tileSize = 256) {
+      const sinLat = Math.sin(clamp(lat, -85.05112878, 85.05112878) * Math.PI / 180);
+      const scale = tileSize * 2 ** zoom;
+      return {
+        x: ((lon + 180) / 360) * scale,
+        y: (0.5 - Math.log((1 + sinLat) / (1 - sinLat)) / (4 * Math.PI)) * scale
+      };
+    }
+
+    function clamp(value, min, max) {
+      return Math.min(max, Math.max(min, Number(value)));
     }
 
     function buildMapBounds(mapData, width, height) {
@@ -2057,6 +2109,34 @@
       };
     }
 
+    function logMapDebug(label, proj, mapData) {
+      const points = (mapData.points || []).slice(0, 80).map((point) => ({
+        label: point.label || "",
+        scale: point.scale,
+        lat: point.lat,
+        lon: point.lon,
+        world: proj.worldPixel(point.lat, point.lon),
+        final: proj(point.lat, point.lon)
+      }));
+      const epicenter = mapData.hasLocation ? {
+        lat: mapData.lat,
+        lon: mapData.lon,
+        world: proj.worldPixel(mapData.lat, mapData.lon),
+        final: proj(mapData.lat, mapData.lon)
+      } : null;
+      console.debug("[quake-map]", label, {
+        zoom: proj.zoom,
+        tile_size: proj.tileSize,
+        center: proj.center,
+        bbox: proj.bounds,
+        top_left_world: proj.topLeftWorld,
+        crop_origin: proj.cropOrigin,
+        resize_scale: proj.resizeScale,
+        epicenter,
+        observation_points: points
+      });
+    }
+
     function drawMapBackground(ctx, width, height, proj) {
       const gradient = ctx.createLinearGradient(0, 0, width, height);
       gradient.addColorStop(0, "#06111e");
@@ -2070,29 +2150,6 @@
       seaGlow.addColorStop(1, "rgba(82, 160, 190, 0)");
       ctx.fillStyle = seaGlow;
       ctx.fillRect(0, 0, width, height);
-
-      ctx.strokeStyle = "rgba(255,255,255,.08)";
-      ctx.lineWidth = 1;
-      const minLon = Math.floor(proj.bounds.minLon / 5) * 5;
-      const maxLon = Math.ceil(proj.bounds.maxLon / 5) * 5;
-      const minLat = Math.floor(proj.bounds.minLat / 5) * 5;
-      const maxLat = Math.ceil(proj.bounds.maxLat / 5) * 5;
-      for (let lon = minLon; lon <= maxLon; lon += 5) {
-        const a = proj(proj.bounds.minLat, lon);
-        const b = proj(proj.bounds.maxLat, lon);
-        ctx.beginPath();
-        ctx.moveTo(a.x, a.y);
-        ctx.lineTo(b.x, b.y);
-        ctx.stroke();
-      }
-      for (let lat = minLat; lat <= maxLat; lat += 5) {
-        const a = proj(lat, proj.bounds.minLon);
-        const b = proj(lat, proj.bounds.maxLon);
-        ctx.beginPath();
-        ctx.moveTo(a.x, a.y);
-        ctx.lineTo(b.x, b.y);
-        ctx.stroke();
-      }
     }
 
     async function drawJapanSvgBaseMap(ctx, proj, fallback) {
@@ -2107,9 +2164,13 @@
         const height = Math.abs(bottomRight.y - topLeft.y);
 
         ctx.save();
-        ctx.shadowColor = "rgba(0,0,0,.28)";
-        ctx.shadowBlur = 8;
-        ctx.globalAlpha = .88;
+        ctx.shadowColor = "rgba(0,0,0,.22)";
+        ctx.shadowBlur = 7;
+        ctx.globalAlpha = .92;
+        // The marker layer and the SVG bounds are both placed through proj().
+        // This keeps the background and marker layers in the same final pixel
+        // coordinate pipeline while using the more accurate Japan SVG outline
+        // instead of the older hand-written approximate polygons.
         ctx.drawImage(img, x, y, width, height);
         ctx.restore();
       } catch (error) {
@@ -2206,10 +2267,7 @@
 
     function drawEpicentralRings(ctx, proj, mapData) {
       const center = proj(mapData.lat, mapData.lon);
-      const pLat = proj(mapData.lat + 1, mapData.lon);
-      const pLon = proj(mapData.lat, mapData.lon + 1);
-      const pxPerDegree = (Math.abs(center.y - pLat.y) + Math.abs(center.x - pLon.x)) / 2;
-      const pxPerKm = pxPerDegree / 111;
+      const kmPerDegreeLon = 111.32 * Math.cos(mapData.lat * Math.PI / 180);
 
       ctx.save();
       ctx.setLineDash([8, 8]);
@@ -2218,7 +2276,8 @@
       ctx.fillStyle = "rgba(255,255,255,.64)";
       ctx.font = "12px system-ui, sans-serif";
       for (const km of [100, 200, 300]) {
-        const r = km * pxPerKm;
+        const edge = proj(mapData.lat, mapData.lon + km / kmPerDegreeLon);
+        const r = Math.abs(edge.x - center.x);
         if (r < 5 || r > 700) continue;
         ctx.beginPath();
         ctx.arc(center.x, center.y, r, 0, Math.PI * 2);
@@ -2269,7 +2328,7 @@
       for (const point of points.slice(0, 80)) {
         const p = proj(point.lat, point.lon);
         const isMax = Number(point.scale || 0) === maxScale && maxScale > 0;
-        const size = isMax ? 30 : 25;
+        const size = observationTileSize(point.scale, maxScale);
         const x = p.x - size / 2;
         const y = p.y - size / 2;
         ctx.fillStyle = seismicColor(point.scale);
@@ -2281,7 +2340,7 @@
         ctx.save();
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.font = isMax ? "900 15px system-ui, sans-serif" : "900 13px system-ui, sans-serif";
+        ctx.font = `900 ${Math.max(10, Math.round(size * 0.52))}px system-ui, sans-serif`;
         ctx.lineWidth = 3;
         ctx.strokeStyle = seismicTextStrokeColor(point.scale);
         ctx.strokeText(compactScaleText(point.scale), p.x, p.y + 1);
@@ -2292,6 +2351,13 @@
     }
 
     function drawObservationLabels(ctx, proj, points) {}
+
+    function observationTileSize(scale, maxScale) {
+      const n = Number(scale || 0);
+      if (n === Number(maxScale || 0) && maxScale > 0) return 30;
+      if (Number(maxScale || 0) >= 40 && n <= 30) return 16;
+      return 23;
+    }
 
     function drawEpicenter(ctx, proj, mapData, accentColor) {
       const p = proj(mapData.lat, mapData.lon);
@@ -2355,10 +2421,23 @@
       const maxLat = mapData.lat + spanLat / 2;
       const minLon = mapData.lon - spanLon / 2;
       const maxLon = mapData.lon + spanLon / 2;
-      const project = (lat, lon) => ({
-        x: x + ((lon - minLon) / (maxLon - minLon)) * width,
-        y: y + ((maxLat - lat) / (maxLat - minLat)) * height
-      });
+      const insetData = {
+        ...mapData,
+        points: mapData.points.filter((point) => point.lat >= minLat && point.lat <= maxLat && point.lon >= minLon && point.lon <= maxLon),
+        areas: [],
+        hasLocation: true
+      };
+      const project = createMapProjection(width, height, insetData);
+      const baseProject = project;
+      const projectWithOffset = (lat, lon) => {
+        const p = baseProject(lat, lon);
+        return { x: p.x + x, y: p.y + y };
+      };
+      Object.assign(projectWithOffset, baseProject);
+      projectWithOffset.isVisible = (lat, lon, margin = 18) => {
+        const p = projectWithOffset(lat, lon);
+        return p.x >= x - margin && p.x <= x + width + margin && p.y >= y - margin && p.y <= y + height + margin;
+      };
 
       ctx.fillStyle = "rgba(5, 10, 19, .78)";
       ctx.strokeStyle = "rgba(255,255,255,.22)";
@@ -2373,12 +2452,12 @@
       ctx.clip();
       ctx.fillStyle = "rgba(35, 70, 95, .42)";
       ctx.fillRect(x, y, width, height);
-      await drawJapanSvgBaseMap(ctx, project, () => drawJapanBaseMap(ctx, project));
-      drawRemoteIslandLabels(ctx, project);
-      drawReferenceLabels(ctx, project);
-      drawObservationPoints(ctx, project, mapData.points);
-      drawObservationLabels(ctx, project, mapData.points);
-      drawEpicenter(ctx, project, mapData, accentColor);
+      await drawJapanSvgBaseMap(ctx, projectWithOffset, () => drawJapanBaseMap(ctx, projectWithOffset));
+      drawRemoteIslandLabels(ctx, projectWithOffset);
+      drawReferenceLabels(ctx, projectWithOffset);
+      drawObservationPoints(ctx, projectWithOffset, mapData.points);
+      drawObservationLabels(ctx, projectWithOffset, mapData.points);
+      drawEpicenter(ctx, projectWithOffset, mapData, accentColor);
       ctx.restore();
 
       ctx.strokeStyle = "rgba(255,255,255,.32)";
