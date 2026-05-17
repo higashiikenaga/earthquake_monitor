@@ -1748,10 +1748,11 @@
     function normalizeMapPoints(points) {
       if (!Array.isArray(points)) return [];
       const mapped = points.map((point) => {
+        const jmaRegion = findPointJmaRegion(point);
         let lat = parseCoordinate(point.latitude ?? point.lat, "lat");
         let lon = parseCoordinate(point.longitude ?? point.lon ?? point.lng, "lon");
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-          const center = findPointAreaCenter(point);
+          const center = jmaRegion || findPointAreaCenter(point);
           if (center) {
             lat = center.lat;
             lon = center.lon;
@@ -1764,7 +1765,8 @@
           scale: Number(point.scale || point.maxScale || 0),
           label: point.addr || point.pref || point.name || "",
           pref: point.pref || "",
-          area: point.area || point.name || point.addr || ""
+          area: point.area || point.name || point.addr || "",
+          regionKey: jmaRegion ? `${jmaRegion.pref}:${jmaRegion.name}` : ""
         };
       }).filter(Boolean);
       return aggregateObservationRegions(mapped);
@@ -1796,12 +1798,24 @@
     }
 
     function observationRegionKey(point) {
+      if (point.regionKey) return point.regionKey;
       const source = normalizeObservationLabel([point.pref, point.area, point.label].filter(Boolean).join(""));
       const pref = String(point.pref || extractPrefectureName(source) || "地域").trim();
       const explicit = findExplicitJmaRegion(source, pref);
       if (explicit) return `${explicit.pref}:${explicit.name}`;
       const nearest = findNearestJmaRegion(point, pref);
       return nearest ? `${nearest.pref}:${nearest.name}` : pref;
+    }
+
+    function findPointJmaRegion(point) {
+      const source = normalizeObservationLabel([point.pref, point.area, point.label].filter(Boolean).join(""));
+      const pref = String(point.pref || extractPrefectureName(source) || "").trim();
+      const explicit = findExplicitJmaRegion(source, pref);
+      if (explicit) return explicit;
+      const municipality = Object.keys(municipalityJmaRegions).find((name) => source.includes(name));
+      if (!municipality) return null;
+      const regionName = municipalityJmaRegions[municipality];
+      return jmaSeismicRegions.find((region) => region.name === regionName || `${region.pref}:${region.name}` === regionName) || null;
     }
 
     function extractPrefectureName(value) {
@@ -2615,6 +2629,15 @@
       { pref: "沖縄県", name: "石垣島地方", lat: 24.4, lon: 124.2 },
       { pref: "沖縄県", name: "与那国島地方", lat: 24.5, lon: 123.0 }
     ];
+
+    const municipalityJmaRegions = {
+      "青森市": "津軽北部", "弘前市": "津軽南部", "五所川原市": "津軽北部", "つがる市": "津軽北部", "平川市": "津軽南部", "黒石市": "津軽南部", "むつ市": "下北", "大間町": "下北", "東通村": "下北", "八戸市": "三八上北", "十和田市": "三八上北", "三沢市": "三八上北", "七戸町": "三八上北", "野辺地町": "三八上北", "階上町": "三八上北", "田子町": "三八上北", "南部町": "三八上北",
+      "盛岡市": "内陸北部", "八幡平市": "内陸北部", "滝沢市": "内陸北部", "雫石町": "内陸北部", "葛巻町": "内陸北部", "岩手町": "内陸北部", "紫波町": "内陸北部", "矢巾町": "内陸北部", "二戸市": "内陸北部", "一戸町": "内陸北部", "軽米町": "内陸北部", "九戸村": "内陸北部", "花巻市": "内陸南部", "北上市": "内陸南部", "遠野市": "内陸南部", "奥州市": "内陸南部", "一関市": "内陸南部", "金ケ崎町": "内陸南部", "平泉町": "内陸南部", "宮古市": "沿岸北部", "久慈市": "沿岸北部", "岩泉町": "沿岸北部", "田野畑村": "沿岸北部", "普代村": "沿岸北部", "野田村": "沿岸北部", "洋野町": "沿岸北部", "釜石市": "沿岸南部", "大船渡市": "沿岸南部", "陸前高田市": "沿岸南部", "住田町": "沿岸南部", "大槌町": "沿岸南部", "山田町": "沿岸南部",
+      "気仙沼市": "宮城県北部", "栗原市": "宮城県北部", "登米市": "宮城県北部", "大崎市": "宮城県北部", "色麻町": "宮城県北部", "加美町": "宮城県北部", "涌谷町": "宮城県北部", "美里町": "宮城県北部", "仙台市": "宮城県中部", "石巻市": "宮城県中部", "塩竈市": "宮城県中部", "多賀城市": "宮城県中部", "東松島市": "宮城県中部", "松島町": "宮城県中部", "七ヶ浜町": "宮城県中部", "利府町": "宮城県中部", "大和町": "宮城県中部", "大郷町": "宮城県中部", "富谷市": "宮城県中部", "女川町": "宮城県中部", "名取市": "宮城県南部", "岩沼市": "宮城県南部", "白石市": "宮城県南部", "角田市": "宮城県南部", "蔵王町": "宮城県南部", "七ヶ宿町": "宮城県南部", "大河原町": "宮城県南部", "村田町": "宮城県南部", "柴田町": "宮城県南部", "川崎町": "宮城県南部", "丸森町": "宮城県南部", "亘理町": "宮城県南部", "山元町": "宮城県南部",
+      "秋田市": "沿岸南部", "男鹿市": "沿岸北部", "能代市": "沿岸北部", "潟上市": "沿岸南部", "由利本荘市": "沿岸南部", "にかほ市": "沿岸南部", "大館市": "内陸北部", "鹿角市": "内陸北部", "北秋田市": "内陸北部", "仙北市": "内陸南部", "大仙市": "内陸南部", "横手市": "内陸南部", "湯沢市": "内陸南部",
+      "山形市": "村山", "寒河江市": "村山", "上山市": "村山", "村山市": "村山", "天童市": "村山", "東根市": "村山", "尾花沢市": "村山", "新庄市": "最上", "金山町": "最上", "最上町": "最上", "舟形町": "最上", "真室川町": "最上", "大蔵村": "最上", "鮭川村": "最上", "戸沢村": "最上", "米沢市": "置賜", "長井市": "置賜", "南陽市": "置賜", "高畠町": "置賜", "川西町": "置賜", "小国町": "置賜", "白鷹町": "置賜", "飯豊町": "置賜", "鶴岡市": "庄内", "酒田市": "庄内", "三川町": "庄内", "庄内町": "庄内", "遊佐町": "庄内",
+      "福島市": "中通り", "郡山市": "中通り", "白河市": "中通り", "須賀川市": "中通り", "二本松市": "中通り", "田村市": "中通り", "本宮市": "中通り", "鏡石町": "中通り", "石川町": "中通り", "玉川村": "中通り", "平田村": "中通り", "浅川町": "中通り", "古殿町": "中通り", "三春町": "中通り", "小野町": "中通り", "会津若松市": "会津", "喜多方市": "会津", "下郷町": "会津", "檜枝岐村": "会津", "只見町": "会津", "南会津町": "会津", "北塩原村": "会津", "西会津町": "会津", "磐梯町": "会津", "猪苗代町": "会津", "会津坂下町": "会津", "湯川村": "会津", "柳津町": "会津", "三島町": "会津", "金山町": "会津", "昭和村": "会津", "会津美里町": "会津", "いわき市": "浜通り", "相馬市": "浜通り", "南相馬市": "浜通り", "広野町": "浜通り", "楢葉町": "浜通り", "富岡町": "浜通り", "川内村": "浜通り", "大熊町": "浜通り", "双葉町": "浜通り", "浪江町": "浜通り", "葛尾村": "浜通り", "新地町": "浜通り", "飯舘村": "浜通り"
+    };
 
     const areaCenters = {
       "北海道": { lat: 43.1, lon: 141.3 },
