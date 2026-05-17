@@ -2139,53 +2139,71 @@
     }
 
     function drawObservationPoints(ctx, proj, points) {
+      const maxScale = points.reduce((max, point) => Math.max(max, Number(point.scale || 0)), 0);
       for (const point of points.slice(0, 80)) {
         const p = proj(point.lat, point.lon);
         const r = Math.max(4, Math.min(11, point.scale / 7));
+        const isMax = Number(point.scale || 0) === maxScale && maxScale > 0;
         ctx.fillStyle = seismicColor(point.scale);
-        ctx.strokeStyle = "rgba(9, 16, 28, .75)";
-        ctx.lineWidth = 2;
+        ctx.strokeStyle = isMax ? "#ffffff" : "rgba(5, 10, 19, .92)";
+        ctx.lineWidth = isMax ? 3.5 : 2.4;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, isMax ? r + 1.5 : r, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
+        if (isMax) {
+          ctx.strokeStyle = "rgba(5, 10, 19, .86)";
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, r + 5, 0, Math.PI * 2);
+          ctx.stroke();
+        }
       }
     }
 
     function drawObservationLabels(ctx, proj, points) {
+      const maxScale = points.reduce((max, point) => Math.max(max, Number(point.scale || 0)), 0);
       const top = [...points].sort((a, b) => (b.scale || 0) - (a.scale || 0)).slice(0, 10);
-      ctx.font = "12px system-ui, sans-serif";
       for (const point of top) {
         const p = proj(point.lat, point.lon);
         const label = `${point.label || ""} ${scaleText(point.scale)}`.trim();
         if (!label) continue;
-        ctx.fillStyle = "rgba(5, 10, 19, .72)";
-        const width = Math.min(150, ctx.measureText(label).width + 12);
-        roundRect(ctx, p.x + 9, p.y - 16, width, 22, 6);
+        const isMax = Number(point.scale || 0) === maxScale && maxScale > 0;
+        ctx.font = isMax ? "800 13px system-ui, sans-serif" : "700 12px system-ui, sans-serif";
+        const text = truncateText(ctx, label, isMax ? 168 : 132);
+        const width = Math.min(isMax ? 190 : 150, ctx.measureText(text).width + (isMax ? 18 : 14));
+        const height = isMax ? 26 : 22;
+        ctx.fillStyle = isMax ? "rgba(3, 8, 16, .94)" : "rgba(5, 10, 19, .84)";
+        ctx.strokeStyle = isMax ? "rgba(255,255,255,.92)" : "rgba(255,255,255,.22)";
+        ctx.lineWidth = isMax ? 2 : 1;
+        roundRect(ctx, p.x + 10, p.y - height + 5, width, height, 7);
         ctx.fill();
-        ctx.fillStyle = "#f5f7fb";
-        ctx.fillText(truncateText(ctx, label, 132), p.x + 15, p.y);
+        ctx.stroke();
+        ctx.fillStyle = isMax ? "#ffffff" : "#f5f7fb";
+        ctx.fillText(text, p.x + (isMax ? 19 : 16), p.y + (isMax ? 1 : 0));
       }
     }
 
     function drawEpicenter(ctx, proj, mapData, accentColor) {
       const p = proj(mapData.lat, mapData.lon);
-      const color = "#" + accentColor.toString(16).padStart(6, "0");
-      ctx.strokeStyle = color;
-      ctx.fillStyle = "rgba(255,255,255,.96)";
+      ctx.save();
+      ctx.lineCap = "round";
+      ctx.strokeStyle = "rgba(255,255,255,.96)";
+      ctx.lineWidth = 9;
+      drawEpicenterCross(ctx, p.x, p.y, 15);
+      ctx.strokeStyle = "#e60012";
       ctx.lineWidth = 5;
+      drawEpicenterCross(ctx, p.x, p.y, 15);
+      ctx.restore();
+    }
+
+    function drawEpicenterCross(ctx, x, y, radius) {
       ctx.beginPath();
-      ctx.arc(p.x, p.y, 18, 0, Math.PI * 2);
+      ctx.moveTo(x - radius, y - radius);
+      ctx.lineTo(x + radius, y + radius);
+      ctx.moveTo(x + radius, y - radius);
+      ctx.lineTo(x - radius, y + radius);
       ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(p.x - 26, p.y);
-      ctx.lineTo(p.x + 26, p.y);
-      ctx.moveTo(p.x, p.y - 26);
-      ctx.lineTo(p.x, p.y + 26);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
-      ctx.fill();
     }
 
     function drawMapPanel(ctx, evt, mapData) {
@@ -2308,15 +2326,15 @@
 
     function seismicColor(scale) {
       const n = Number(scale);
-      if (n >= 70) return "#b40068";
-      if (n >= 60) return "#c72f2f";
-      if (n >= 55) return "#e85d2a";
-      if (n >= 50) return "#ff8c1a";
-      if (n >= 45) return "#ffc400";
-      if (n >= 40) return "#f2df64";
-      if (n >= 30) return "#63c660";
-      if (n >= 20) return "#4eb3d3";
-      return "#9cc9ff";
+      if (n >= 70) return "#a6006b";
+      if (n >= 60) return "#c4001a";
+      if (n >= 55) return "#e8341f";
+      if (n >= 50) return "#ff7a00";
+      if (n >= 45) return "#ffd000";
+      if (n >= 40) return "#fff000";
+      if (n >= 30) return "#00b050";
+      if (n >= 20) return "#0070c0";
+      return "#8fd3ff";
     }
 
     function tsunamiGradeColor(grade) {
