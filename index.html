@@ -1376,13 +1376,25 @@
       });
 
       if (evt.scale) {
+        const cx = x + panelWidth - 42;
+        const cy = y + 43;
         ctx.fillStyle = seismicColor(evt.scale);
+        ctx.strokeStyle = "rgba(255,255,255,.95)";
+        ctx.lineWidth = 3;
         ctx.beginPath();
-        ctx.arc(x + panelWidth - 42, y + 43, 22, 0, Math.PI * 2);
+        ctx.arc(cx, cy, 22, 0, Math.PI * 2);
         ctx.fill();
-        ctx.fillStyle = "#071025";
+        ctx.stroke();
+        ctx.save();
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
         ctx.font = "900 16px system-ui, sans-serif";
-        ctx.fillText(scaleText(evt.scale), x + panelWidth - 52, y + 49);
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = seismicTextStrokeColor(evt.scale);
+        ctx.strokeText(compactScaleText(evt.scale), cx, cy + 1);
+        ctx.fillStyle = seismicTextColor(evt.scale);
+        ctx.fillText(compactScaleText(evt.scale), cx, cy + 1);
+        ctx.restore();
       }
     }
 
@@ -1735,7 +1747,7 @@
 
     function normalizeMapPoints(points) {
       if (!Array.isArray(points)) return [];
-      return points.map((point) => {
+      const mapped = points.map((point) => {
         let lat = parseCoordinate(point.latitude ?? point.lat, "lat");
         let lon = parseCoordinate(point.longitude ?? point.lon ?? point.lng, "lon");
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
@@ -1750,9 +1762,66 @@
           lat,
           lon,
           scale: Number(point.scale || point.maxScale || 0),
-          label: point.addr || point.pref || point.name || ""
+          label: point.addr || point.pref || point.name || "",
+          pref: point.pref || "",
+          area: point.area || point.name || point.addr || ""
         };
       }).filter(Boolean);
+      return aggregateObservationRegions(mapped);
+    }
+
+    function aggregateObservationRegions(points) {
+      const groups = new Map();
+      for (const point of points) {
+        const key = observationRegionKey(point);
+        const regionName = key.split(":").slice(1).join(":") || key;
+        const region = jmaSeismicRegions.find((item) => `${item.pref}:${item.name}` === key || item.name === regionName);
+        const current = groups.get(key);
+        if (!current) {
+          groups.set(key, {
+            ...point,
+            lat: region?.lat ?? point.lat,
+            lon: region?.lon ?? point.lon,
+            label: "",
+            count: 1
+          });
+          continue;
+        }
+        current.count += 1;
+        if (Number(point.scale || 0) > Number(current.scale || 0)) {
+          current.scale = point.scale;
+        }
+      }
+      return [...groups.values()].filter((point) => Number(point.scale || 0) > 0);
+    }
+
+    function observationRegionKey(point) {
+      const source = normalizeObservationLabel([point.pref, point.area, point.label].filter(Boolean).join(""));
+      const pref = String(point.pref || extractPrefectureName(source) || "地域").trim();
+      const explicit = findExplicitJmaRegion(source, pref);
+      if (explicit) return `${explicit.pref}:${explicit.name}`;
+      const nearest = findNearestJmaRegion(point, pref);
+      return nearest ? `${nearest.pref}:${nearest.name}` : pref;
+    }
+
+    function extractPrefectureName(value) {
+      return String(value || "").match(/(北海道|東京都|大阪府|京都府|.{2,3}県)/)?.[1] || "";
+    }
+
+    function findExplicitJmaRegion(source, pref) {
+      if (!source) return null;
+      const candidates = jmaSeismicRegions.filter((region) => region.pref === pref || source.includes(region.pref));
+      return candidates.find((region) => source.includes(region.name) || source.includes(region.name.replace(region.pref, ""))) || null;
+    }
+
+    function findNearestJmaRegion(point, pref) {
+      if (!Number.isFinite(point.lat) || !Number.isFinite(point.lon)) return null;
+      const candidates = jmaSeismicRegions.filter((region) => region.pref === pref);
+      if (candidates.length === 0) return null;
+      return candidates.reduce((best, region) => {
+        const dist = Math.hypot(point.lat - region.lat, (point.lon - region.lon) * Math.cos(point.lat * Math.PI / 180));
+        return !best || dist < best.dist ? { ...region, dist } : best;
+      }, null);
     }
 
     function normalizeMapAreas(areas) {
@@ -2142,47 +2211,30 @@
       const maxScale = points.reduce((max, point) => Math.max(max, Number(point.scale || 0)), 0);
       for (const point of points.slice(0, 80)) {
         const p = proj(point.lat, point.lon);
-        const r = Math.max(4, Math.min(11, point.scale / 7));
         const isMax = Number(point.scale || 0) === maxScale && maxScale > 0;
+        const size = isMax ? 30 : 25;
+        const x = p.x - size / 2;
+        const y = p.y - size / 2;
         ctx.fillStyle = seismicColor(point.scale);
         ctx.strokeStyle = isMax ? "#ffffff" : "rgba(5, 10, 19, .92)";
-        ctx.lineWidth = isMax ? 3.5 : 2.4;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, isMax ? r + 1.5 : r, 0, Math.PI * 2);
+        ctx.lineWidth = isMax ? 3 : 2;
+        roundRect(ctx, x, y, size, size, 4);
         ctx.fill();
         ctx.stroke();
-        if (isMax) {
-          ctx.strokeStyle = "rgba(5, 10, 19, .86)";
-          ctx.lineWidth = 1.5;
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, r + 5, 0, Math.PI * 2);
-          ctx.stroke();
-        }
+        ctx.save();
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.font = isMax ? "900 15px system-ui, sans-serif" : "900 13px system-ui, sans-serif";
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = seismicTextStrokeColor(point.scale);
+        ctx.strokeText(compactScaleText(point.scale), p.x, p.y + 1);
+        ctx.fillStyle = seismicTextColor(point.scale);
+        ctx.fillText(compactScaleText(point.scale), p.x, p.y + 1);
+        ctx.restore();
       }
     }
 
-    function drawObservationLabels(ctx, proj, points) {
-      const maxScale = points.reduce((max, point) => Math.max(max, Number(point.scale || 0)), 0);
-      const top = [...points].sort((a, b) => (b.scale || 0) - (a.scale || 0)).slice(0, 10);
-      for (const point of top) {
-        const p = proj(point.lat, point.lon);
-        const label = `${point.label || ""} ${scaleText(point.scale)}`.trim();
-        if (!label) continue;
-        const isMax = Number(point.scale || 0) === maxScale && maxScale > 0;
-        ctx.font = isMax ? "800 13px system-ui, sans-serif" : "700 12px system-ui, sans-serif";
-        const text = truncateText(ctx, label, isMax ? 168 : 132);
-        const width = Math.min(isMax ? 190 : 150, ctx.measureText(text).width + (isMax ? 18 : 14));
-        const height = isMax ? 26 : 22;
-        ctx.fillStyle = isMax ? "rgba(3, 8, 16, .94)" : "rgba(5, 10, 19, .84)";
-        ctx.strokeStyle = isMax ? "rgba(255,255,255,.92)" : "rgba(255,255,255,.22)";
-        ctx.lineWidth = isMax ? 2 : 1;
-        roundRect(ctx, p.x + 10, p.y - height + 5, width, height, 7);
-        ctx.fill();
-        ctx.stroke();
-        ctx.fillStyle = isMax ? "#ffffff" : "#f5f7fb";
-        ctx.fillText(text, p.x + (isMax ? 19 : 16), p.y + (isMax ? 1 : 0));
-      }
-    }
+    function drawObservationLabels(ctx, proj, points) {}
 
     function drawEpicenter(ctx, proj, mapData, accentColor) {
       const p = proj(mapData.lat, mapData.lon);
@@ -2395,6 +2447,175 @@
       { name: "那覇", lat: 26.2124, lon: 127.6792 }
     ];
 
+    const jmaSeismicRegions = [
+      { pref: "北海道", name: "宗谷地方北部", lat: 45.3, lon: 141.9 },
+      { pref: "北海道", name: "宗谷地方南部", lat: 44.9, lon: 142.0 },
+      { pref: "北海道", name: "上川地方北部", lat: 44.3, lon: 142.5 },
+      { pref: "北海道", name: "上川地方中部", lat: 43.8, lon: 142.4 },
+      { pref: "北海道", name: "上川地方南部", lat: 43.4, lon: 142.4 },
+      { pref: "北海道", name: "留萌地方中北部", lat: 44.1, lon: 141.7 },
+      { pref: "北海道", name: "留萌地方南部", lat: 43.8, lon: 141.6 },
+      { pref: "北海道", name: "石狩地方北部", lat: 43.3, lon: 141.4 },
+      { pref: "北海道", name: "石狩地方中部", lat: 43.1, lon: 141.4 },
+      { pref: "北海道", name: "石狩地方南部", lat: 42.8, lon: 141.5 },
+      { pref: "北海道", name: "空知地方北部", lat: 43.8, lon: 142.0 },
+      { pref: "北海道", name: "空知地方中部", lat: 43.5, lon: 141.9 },
+      { pref: "北海道", name: "空知地方南部", lat: 43.1, lon: 141.8 },
+      { pref: "北海道", name: "後志地方北部", lat: 43.2, lon: 140.8 },
+      { pref: "北海道", name: "後志地方東部", lat: 42.9, lon: 141.0 },
+      { pref: "北海道", name: "後志地方西部", lat: 42.9, lon: 140.3 },
+      { pref: "北海道", name: "網走地方", lat: 44.0, lon: 144.3 },
+      { pref: "北海道", name: "北見地方", lat: 43.8, lon: 143.9 },
+      { pref: "北海道", name: "紋別地方", lat: 44.3, lon: 143.4 },
+      { pref: "北海道", name: "胆振地方西部", lat: 42.5, lon: 140.9 },
+      { pref: "北海道", name: "胆振地方中東部", lat: 42.7, lon: 141.7 },
+      { pref: "北海道", name: "日高地方西部", lat: 42.4, lon: 142.2 },
+      { pref: "北海道", name: "日高地方中部", lat: 42.3, lon: 142.7 },
+      { pref: "北海道", name: "日高地方東部", lat: 42.2, lon: 143.2 },
+      { pref: "北海道", name: "渡島地方北部", lat: 42.1, lon: 140.4 },
+      { pref: "北海道", name: "渡島地方東部", lat: 41.9, lon: 140.9 },
+      { pref: "北海道", name: "渡島地方西部", lat: 41.8, lon: 140.1 },
+      { pref: "北海道", name: "檜山地方", lat: 42.1, lon: 139.9 },
+      { pref: "北海道", name: "十勝地方北部", lat: 43.3, lon: 143.2 },
+      { pref: "北海道", name: "十勝地方中部", lat: 42.9, lon: 143.2 },
+      { pref: "北海道", name: "十勝地方南部", lat: 42.4, lon: 143.1 },
+      { pref: "北海道", name: "釧路地方北部", lat: 43.5, lon: 144.2 },
+      { pref: "北海道", name: "釧路地方中南部", lat: 43.0, lon: 144.4 },
+      { pref: "北海道", name: "根室地方北部", lat: 43.6, lon: 145.1 },
+      { pref: "北海道", name: "根室地方中部", lat: 43.4, lon: 145.6 },
+      { pref: "北海道", name: "根室地方南部", lat: 43.2, lon: 145.8 },
+      { pref: "青森県", name: "津軽北部", lat: 40.9, lon: 140.5 },
+      { pref: "青森県", name: "津軽南部", lat: 40.6, lon: 140.5 },
+      { pref: "青森県", name: "三八上北", lat: 40.7, lon: 141.3 },
+      { pref: "青森県", name: "下北", lat: 41.3, lon: 141.2 },
+      { pref: "岩手県", name: "沿岸北部", lat: 39.8, lon: 141.9 },
+      { pref: "岩手県", name: "沿岸南部", lat: 39.1, lon: 141.8 },
+      { pref: "岩手県", name: "内陸北部", lat: 40.0, lon: 141.1 },
+      { pref: "岩手県", name: "内陸南部", lat: 39.2, lon: 141.1 },
+      { pref: "宮城県", name: "宮城県北部", lat: 38.7, lon: 141.0 },
+      { pref: "宮城県", name: "宮城県南部", lat: 38.0, lon: 140.8 },
+      { pref: "宮城県", name: "宮城県中部", lat: 38.3, lon: 141.0 },
+      { pref: "秋田県", name: "沿岸北部", lat: 40.0, lon: 140.0 },
+      { pref: "秋田県", name: "沿岸南部", lat: 39.3, lon: 140.0 },
+      { pref: "秋田県", name: "内陸北部", lat: 40.1, lon: 140.6 },
+      { pref: "秋田県", name: "内陸南部", lat: 39.3, lon: 140.6 },
+      { pref: "山形県", name: "庄内", lat: 38.8, lon: 139.9 },
+      { pref: "山形県", name: "最上", lat: 38.8, lon: 140.3 },
+      { pref: "山形県", name: "村山", lat: 38.3, lon: 140.3 },
+      { pref: "山形県", name: "置賜", lat: 37.9, lon: 140.1 },
+      { pref: "福島県", name: "中通り", lat: 37.6, lon: 140.4 },
+      { pref: "福島県", name: "浜通り", lat: 37.5, lon: 141.0 },
+      { pref: "福島県", name: "会津", lat: 37.5, lon: 139.9 },
+      { pref: "茨城県", name: "茨城県北部", lat: 36.6, lon: 140.5 },
+      { pref: "茨城県", name: "茨城県南部", lat: 36.0, lon: 140.2 },
+      { pref: "栃木県", name: "栃木県北部", lat: 36.9, lon: 139.8 },
+      { pref: "栃木県", name: "栃木県南部", lat: 36.4, lon: 139.8 },
+      { pref: "群馬県", name: "群馬県北部", lat: 36.7, lon: 139.1 },
+      { pref: "群馬県", name: "群馬県南部", lat: 36.3, lon: 139.1 },
+      { pref: "埼玉県", name: "埼玉県北部", lat: 36.1, lon: 139.4 },
+      { pref: "埼玉県", name: "埼玉県南部", lat: 35.8, lon: 139.6 },
+      { pref: "埼玉県", name: "秩父地方", lat: 35.9, lon: 139.0 },
+      { pref: "千葉県", name: "千葉県北東部", lat: 35.8, lon: 140.6 },
+      { pref: "千葉県", name: "千葉県北西部", lat: 35.8, lon: 140.1 },
+      { pref: "千葉県", name: "千葉県南部", lat: 35.1, lon: 139.9 },
+      { pref: "東京都", name: "東京都２３区", lat: 35.7, lon: 139.8 },
+      { pref: "東京都", name: "東京都多摩東部", lat: 35.7, lon: 139.5 },
+      { pref: "東京都", name: "東京都多摩西部", lat: 35.7, lon: 139.1 },
+      { pref: "神奈川県", name: "神奈川県東部", lat: 35.4, lon: 139.6 },
+      { pref: "神奈川県", name: "神奈川県西部", lat: 35.3, lon: 139.1 },
+      { pref: "新潟県", name: "新潟県上越", lat: 37.1, lon: 138.2 },
+      { pref: "新潟県", name: "新潟県中越", lat: 37.5, lon: 138.9 },
+      { pref: "新潟県", name: "新潟県下越", lat: 37.9, lon: 139.2 },
+      { pref: "富山県", name: "富山県東部", lat: 36.8, lon: 137.4 },
+      { pref: "富山県", name: "富山県西部", lat: 36.7, lon: 136.9 },
+      { pref: "石川県", name: "石川県能登", lat: 37.2, lon: 136.9 },
+      { pref: "石川県", name: "石川県加賀", lat: 36.5, lon: 136.6 },
+      { pref: "福井県", name: "福井県嶺北", lat: 36.1, lon: 136.2 },
+      { pref: "福井県", name: "福井県嶺南", lat: 35.5, lon: 135.9 },
+      { pref: "山梨県", name: "山梨県中・西部", lat: 35.6, lon: 138.5 },
+      { pref: "山梨県", name: "山梨県東部・富士五湖", lat: 35.5, lon: 138.9 },
+      { pref: "長野県", name: "長野県北部", lat: 36.8, lon: 138.2 },
+      { pref: "長野県", name: "長野県中部", lat: 36.2, lon: 138.0 },
+      { pref: "長野県", name: "長野県南部", lat: 35.8, lon: 137.9 },
+      { pref: "岐阜県", name: "岐阜県飛騨", lat: 36.1, lon: 137.3 },
+      { pref: "岐阜県", name: "岐阜県美濃東部", lat: 35.5, lon: 137.1 },
+      { pref: "岐阜県", name: "岐阜県美濃中西部", lat: 35.4, lon: 136.7 },
+      { pref: "静岡県", name: "静岡県伊豆", lat: 34.9, lon: 139.0 },
+      { pref: "静岡県", name: "静岡県東部", lat: 35.1, lon: 138.8 },
+      { pref: "静岡県", name: "静岡県中部", lat: 35.0, lon: 138.4 },
+      { pref: "静岡県", name: "静岡県西部", lat: 34.8, lon: 137.8 },
+      { pref: "愛知県", name: "愛知県東部", lat: 35.0, lon: 137.4 },
+      { pref: "愛知県", name: "愛知県西部", lat: 35.1, lon: 136.9 },
+      { pref: "三重県", name: "三重県北部", lat: 35.0, lon: 136.6 },
+      { pref: "三重県", name: "三重県中部", lat: 34.6, lon: 136.5 },
+      { pref: "三重県", name: "三重県南部", lat: 34.0, lon: 136.2 },
+      { pref: "滋賀県", name: "滋賀県北部", lat: 35.4, lon: 136.1 },
+      { pref: "滋賀県", name: "滋賀県南部", lat: 35.0, lon: 136.0 },
+      { pref: "京都府", name: "京都府北部", lat: 35.5, lon: 135.2 },
+      { pref: "京都府", name: "京都府南部", lat: 35.0, lon: 135.7 },
+      { pref: "大阪府", name: "大阪府北部", lat: 34.8, lon: 135.5 },
+      { pref: "大阪府", name: "大阪府南部", lat: 34.4, lon: 135.5 },
+      { pref: "兵庫県", name: "兵庫県北部", lat: 35.5, lon: 134.8 },
+      { pref: "兵庫県", name: "兵庫県南東部", lat: 34.8, lon: 135.2 },
+      { pref: "兵庫県", name: "兵庫県南西部", lat: 34.8, lon: 134.7 },
+      { pref: "奈良県", name: "奈良県", lat: 34.5, lon: 135.8 },
+      { pref: "和歌山県", name: "和歌山県北部", lat: 34.2, lon: 135.2 },
+      { pref: "和歌山県", name: "和歌山県南部", lat: 33.8, lon: 135.6 },
+      { pref: "鳥取県", name: "鳥取県東部", lat: 35.5, lon: 134.3 },
+      { pref: "鳥取県", name: "鳥取県中部", lat: 35.4, lon: 133.8 },
+      { pref: "鳥取県", name: "鳥取県西部", lat: 35.4, lon: 133.4 },
+      { pref: "島根県", name: "島根県東部", lat: 35.4, lon: 133.1 },
+      { pref: "島根県", name: "島根県西部", lat: 34.8, lon: 132.2 },
+      { pref: "岡山県", name: "岡山県北部", lat: 35.0, lon: 133.8 },
+      { pref: "岡山県", name: "岡山県南部", lat: 34.6, lon: 133.9 },
+      { pref: "広島県", name: "広島県北部", lat: 34.8, lon: 132.9 },
+      { pref: "広島県", name: "広島県南東部", lat: 34.4, lon: 133.1 },
+      { pref: "広島県", name: "広島県南西部", lat: 34.4, lon: 132.4 },
+      { pref: "山口県", name: "山口県北部", lat: 34.4, lon: 131.3 },
+      { pref: "山口県", name: "山口県西部", lat: 34.0, lon: 130.9 },
+      { pref: "山口県", name: "山口県東部", lat: 34.1, lon: 132.0 },
+      { pref: "山口県", name: "山口県中部", lat: 34.1, lon: 131.5 },
+      { pref: "徳島県", name: "徳島県北部", lat: 34.0, lon: 134.4 },
+      { pref: "徳島県", name: "徳島県南部", lat: 33.7, lon: 134.4 },
+      { pref: "香川県", name: "香川県", lat: 34.3, lon: 134.0 },
+      { pref: "愛媛県", name: "愛媛県東予", lat: 33.9, lon: 133.1 },
+      { pref: "愛媛県", name: "愛媛県中予", lat: 33.8, lon: 132.8 },
+      { pref: "愛媛県", name: "愛媛県南予", lat: 33.3, lon: 132.5 },
+      { pref: "高知県", name: "高知県東部", lat: 33.5, lon: 134.0 },
+      { pref: "高知県", name: "高知県中部", lat: 33.6, lon: 133.5 },
+      { pref: "高知県", name: "高知県西部", lat: 33.1, lon: 132.9 },
+      { pref: "福岡県", name: "福岡県福岡", lat: 33.6, lon: 130.4 },
+      { pref: "福岡県", name: "福岡県北九州", lat: 33.9, lon: 130.9 },
+      { pref: "福岡県", name: "福岡県筑豊", lat: 33.6, lon: 130.7 },
+      { pref: "福岡県", name: "福岡県筑後", lat: 33.2, lon: 130.5 },
+      { pref: "佐賀県", name: "佐賀県北部", lat: 33.5, lon: 130.0 },
+      { pref: "佐賀県", name: "佐賀県南部", lat: 33.2, lon: 130.2 },
+      { pref: "長崎県", name: "長崎県北部", lat: 33.2, lon: 129.7 },
+      { pref: "長崎県", name: "長崎県南西部", lat: 32.8, lon: 129.8 },
+      { pref: "長崎県", name: "長崎県島原半島", lat: 32.8, lon: 130.3 },
+      { pref: "熊本県", name: "熊本県阿蘇", lat: 32.9, lon: 131.1 },
+      { pref: "熊本県", name: "熊本県熊本", lat: 32.8, lon: 130.7 },
+      { pref: "熊本県", name: "熊本県球磨", lat: 32.2, lon: 130.8 },
+      { pref: "熊本県", name: "熊本県天草・芦北", lat: 32.3, lon: 130.2 },
+      { pref: "大分県", name: "大分県北部", lat: 33.5, lon: 131.3 },
+      { pref: "大分県", name: "大分県中部", lat: 33.2, lon: 131.6 },
+      { pref: "大分県", name: "大分県南部", lat: 32.9, lon: 131.7 },
+      { pref: "大分県", name: "大分県西部", lat: 33.2, lon: 131.0 },
+      { pref: "宮崎県", name: "宮崎県北部平野部", lat: 32.5, lon: 131.6 },
+      { pref: "宮崎県", name: "宮崎県北部山沿い", lat: 32.4, lon: 131.2 },
+      { pref: "宮崎県", name: "宮崎県南部平野部", lat: 31.8, lon: 131.4 },
+      { pref: "宮崎県", name: "宮崎県南部山沿い", lat: 31.7, lon: 131.0 },
+      { pref: "鹿児島県", name: "鹿児島県薩摩", lat: 31.7, lon: 130.5 },
+      { pref: "鹿児島県", name: "鹿児島県大隅", lat: 31.3, lon: 130.9 },
+      { pref: "沖縄県", name: "沖縄本島北部", lat: 26.7, lon: 128.0 },
+      { pref: "沖縄県", name: "沖縄本島中南部", lat: 26.2, lon: 127.7 },
+      { pref: "沖縄県", name: "久米島", lat: 26.3, lon: 126.8 },
+      { pref: "沖縄県", name: "大東島地方", lat: 25.8, lon: 131.2 },
+      { pref: "沖縄県", name: "宮古島地方", lat: 24.8, lon: 125.3 },
+      { pref: "沖縄県", name: "石垣島地方", lat: 24.4, lon: 124.2 },
+      { pref: "沖縄県", name: "与那国島地方", lat: 24.5, lon: 123.0 }
+    ];
+
     const areaCenters = {
       "北海道": { lat: 43.1, lon: 141.3 },
       "青森県": { lat: 40.8, lon: 140.7 },
@@ -2581,6 +2802,20 @@
         45: "5弱", 50: "5強", 55: "6弱", 60: "6強", 70: "7"
       };
       return map[Math.round(n)] || String(scale);
+    }
+
+    function compactScaleText(scale) {
+      return scaleText(scale).replace("弱", "-").replace("強", "+");
+    }
+
+    function seismicTextColor(scale) {
+      const n = Number(scale);
+      return n >= 40 && n < 55 ? "#071025" : "#ffffff";
+    }
+
+    function seismicTextStrokeColor(scale) {
+      const n = Number(scale);
+      return n >= 40 && n < 55 ? "rgba(255,255,255,.82)" : "rgba(3,8,16,.92)";
     }
 
     function topPoints(points = []) {
