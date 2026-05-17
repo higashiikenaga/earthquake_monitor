@@ -1441,7 +1441,8 @@
       const magnitude = formatMagnitude(mapData.magnitude);
       const depth = mapData.depth !== undefined ? formatDepth(mapData.depth) : "深さ不明";
       const maxScale = mapData.maxScale || evt.scale || 0;
-      const title = evt.kind === "eew" ? "緊急地震速報" : "地震発生時";
+      const title = mapPanelTitle(evt);
+      const hypocenter = mapData.name || getEventFacts(evt).hypocenter || "震源不明";
       const timeInfo = getMapPanelTime(evt);
       const rows = [
         ["マグニチュード", magnitude],
@@ -1450,6 +1451,9 @@
       ctx.fillStyle = "#f5f7fb";
       ctx.font = "800 22px system-ui, sans-serif";
       ctx.fillText(title, x + 18, y + 32);
+      ctx.font = "800 15px system-ui, sans-serif";
+      ctx.fillStyle = "#e6edf8";
+      ctx.fillText(truncateText(ctx, hypocenter, 150), x + 188, y + 32);
 
       ctx.font = "700 14px system-ui, sans-serif";
       ctx.fillStyle = "#9fb0cb";
@@ -1473,6 +1477,16 @@
       if (maxScale) {
         const cx = x + panelWidth - 42;
         const cy = y + 52;
+        ctx.save();
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.font = "800 10px system-ui, sans-serif";
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = "rgba(2, 8, 18, .92)";
+        ctx.strokeText(evt.kind === "eew" ? "最大予想震度" : "最大震度", cx, y + 14);
+        ctx.fillStyle = "#f4f8ff";
+        ctx.fillText(evt.kind === "eew" ? "最大予想震度" : "最大震度", cx, y + 14);
+        ctx.restore();
         ctx.fillStyle = seismicColor(maxScale);
         ctx.strokeStyle = "rgba(255,255,255,.95)";
         ctx.lineWidth = 3;
@@ -1491,6 +1505,17 @@
         ctx.fillText(compactScaleText(maxScale), cx, cy + 1);
         ctx.restore();
       }
+    }
+
+    function mapPanelTitle(evt) {
+      if (evt.kind === "eew") {
+        if (evt.eewLevel === "warning") return "緊急地震速報(警報)";
+        if (evt.eewLevel === "forecast") return "緊急地震速報(予報)";
+        return "緊急地震速報";
+      }
+      if (evt.raw?.code === 561 || evt.raw?.code === "561") return "震度速報";
+      if (evt.kind === "quake" && !evt.raw?.earthquake?.hypocenter) return "震度速報";
+      return "地震情報";
     }
 
     function getMapPanelTime(evt) {
